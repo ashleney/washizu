@@ -1,0 +1,4 @@
+max_width = 130
+brace_style = "SameLineWhere"
+control_brace_style = "AlwaysSameLine"
+single_line_if_else_maxwidth = 10000

@@ -1,0 +1,14 @@
+[package]
+name = "washizu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libriichi = { path = "Mortal/libriichi" }
+# mortal requirements that are used in 1st party code:
+derivative = "2.2.0"
+flate2 = "1.1.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.141"
+serde_with = "3.14.0"
+tinyvec = { version = "1", features = ["alloc", "serde", "rustc_1_57"] }
