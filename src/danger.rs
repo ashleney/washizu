@@ -1,7 +1,6 @@
 //! Port of EndlessCheng's tile risk calculation.
 //! Intended to help a player understand an engine's decision, rather than determining what's the safest discard.
 //! original: <https://github.com/EndlessCheng/mahjong-helper/blob/master/util/risk_base.go>
-use tinyvec;
 
 /// Wall danger for ryanmen waits using chance strategies.
 #[derive(Copy, Clone, Debug)]
@@ -21,7 +20,7 @@ pub enum WallDangerType {
 }
 
 impl WallDangerType {
-    pub fn to_acronym(&self) -> &'static str {
+    pub fn to_acronym(self) -> &'static str {
         match self {
             WallDangerType::None => "",
             WallDangerType::DoubleNoChance => "DNC",
@@ -60,7 +59,7 @@ pub enum DangerType {
 }
 
 impl DangerType {
-    pub fn to_part_string(&self) -> &'static str {
+    pub fn to_part_string(self) -> &'static str {
         match self {
             DangerType::NoSuji46 => "",
             DangerType::NoSuji5 => "",
@@ -120,12 +119,12 @@ impl Danger {
 
         score
     }
-    pub fn to_short_string(&self) -> String {
-        let meta_string = vec![
+    pub fn to_short_string(self) -> String {
+        let meta_string = [
             self.danger_type.to_part_string().to_owned(),
             match self.wall_danger_type {
                 WallDangerType::None => "".to_owned(),
-                x => format!("{}", x.to_acronym()),
+                x => x.to_acronym().to_string(),
             },
         ]
         .iter()
@@ -140,7 +139,7 @@ impl Danger {
             if meta_string.is_empty() {
                 "".to_owned()
             } else {
-                format!("({})", meta_string)
+                format!("({meta_string})")
             }
         )
     }
@@ -330,9 +329,9 @@ pub fn calculate_tile_danger(
     player_wind_tile: u8,
     turns: u8,
     doras: Vec<u8>,
-) -> Vec<Danger> {
+) -> [Danger; 34] {
     let wall_danger = calculate_wall_danger(left_tiles, safe_tiles);
-    let mut low_risk_tiles = safe_tiles.clone();
+    let mut low_risk_tiles = *safe_tiles;
     for (tile, &danger) in wall_danger.iter().enumerate() {
         if matches!(danger, WallDangerType::DoubleNoChance | WallDangerType::NoChance) {
             low_risk_tiles[tile] = true;
@@ -348,13 +347,13 @@ pub fn calculate_tile_danger(
             } else if num == 2 && left_tiles[tile + 2] == 0 {
                 danger[tile] = DangerType::Suji37;
             } else {
-                danger[tile] = SUHAI_DANGER_TYPE_TABLE[num as usize][low_risk_tiles[tile + 3] as usize];
+                danger[tile] = SUHAI_DANGER_TYPE_TABLE[num][low_risk_tiles[tile + 3] as usize];
             }
         }
         for num in 3..6 {
             let tile = 9 * kind + num;
-            danger[tile] = SUHAI_DANGER_TYPE_TABLE[num as usize]
-                [((low_risk_tiles[tile - 3] as usize) << 1) | (low_risk_tiles[tile + 3] as usize)];
+            danger[tile] =
+                SUHAI_DANGER_TYPE_TABLE[num][((low_risk_tiles[tile - 3] as usize) << 1) | (low_risk_tiles[tile + 3] as usize)];
         }
         for num in 6..9 {
             let tile = 9 * kind + num;
@@ -363,7 +362,7 @@ pub fn calculate_tile_danger(
             } else if num == 2 && left_tiles[tile + 2] == 0 {
                 danger[tile] = DangerType::Suji37;
             } else {
-                danger[tile] = SUHAI_DANGER_TYPE_TABLE[num as usize][low_risk_tiles[tile + 3] as usize];
+                danger[tile] = SUHAI_DANGER_TYPE_TABLE[num][low_risk_tiles[tile + 3] as usize];
             }
         }
     }
@@ -388,7 +387,7 @@ pub fn calculate_tile_danger(
         }
     }
 
-    let mut danger = danger
+    danger
         .iter()
         .cloned()
         .zip(wall_danger)
@@ -400,12 +399,12 @@ pub fn calculate_tile_danger(
                 wall_danger_type,
                 danger_score: 0.0,
             };
-            d.danger_score = d.calculate_danger_score(turns, doras.iter().any(|x| *x == tile as u8));
+            d.danger_score = d.calculate_danger_score(turns, doras.contains(&(tile as u8)));
             d
         })
-        .collect::<Vec<_>>();
-    danger.sort_by(|a, b| b.danger_score.partial_cmp(&a.danger_score).unwrap());
-    danger
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
 }
 
 /// Determines safe tiles for the other three players asuming kawa is relative
@@ -438,11 +437,11 @@ fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<riichi::state::item::Ka
         }
     }
 
-    return safe_tiles;
+    safe_tiles
 }
 
 /// Calculate the danger type for each tile for each player
-pub fn calculate_board_tile_danger(state: &riichi::state::PlayerState) -> [Vec<Danger>; 3] {
+pub fn calculate_board_tile_danger(state: &riichi::state::PlayerState) -> [[Danger; 34]; 3] {
     let left_tiles = state.tiles_seen.map(|x| 4 - x);
     determine_safe_tiles(&state.kawa)
         .iter()
@@ -475,8 +474,7 @@ mod test {
         let result = riichi::hand::tiles_to_string(&tiles.map(|x| !matches!(x, WallDangerType::None) as u8), [false; 3]);
         assert_eq!(
             expected, result,
-            "expected {} to have {} be OneChance but got {} instead",
-            visible_tiles, expected, result
+            "expected {visible_tiles} to have {expected} be OneChance but got {result} instead"
         )
     }
 
@@ -494,8 +492,7 @@ mod test {
         let result = riichi::hand::tiles_to_string(&tiles.map(|x| matches!(x, WallDangerType::DoubleNoChance) as u8), [false; 3]);
         assert_eq!(
             expected, result,
-            "expected {} to have {} be DoubleNoChance but got {} instead",
-            visible_tiles, expected, result
+            "expected {visible_tiles} to have {expected} be DoubleNoChance but got {result} instead"
         )
     }
 
