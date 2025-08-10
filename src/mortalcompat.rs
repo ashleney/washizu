@@ -399,8 +399,13 @@ pub trait CandidateExt {
 impl CandidateExt for riichi::algo::sp::Candidate {
     fn to_candidate_string(&self) -> String {
         format!(
-            "{:<3} {:>6} {:>6.2}% {:>6.2}% {} {} {}",
+            "{:<3} {:>5} {:>6} {:>6.2}% {:>6.2}% {} {} {}",
             self.tile.to_string(),
+            if !self.exp_values.is_empty() {
+                self.exp_values[0] as i32
+            } else {
+                0
+            },
             if !self.exp_values.is_empty() {
                 (self.exp_values[0] / self.win_probs[0]).round() as i32
             } else {

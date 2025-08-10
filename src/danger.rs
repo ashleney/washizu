@@ -359,10 +359,10 @@ pub fn calculate_tile_danger(
             let tile = 9 * kind + num;
             if num == 8 && safe_tiles[tile - 3] && left_tiles[tile] == 0 {
                 danger[tile] = DangerType::Safe;
-            } else if num == 2 && left_tiles[tile + 2] == 0 {
+            } else if num == 6 && left_tiles[tile - 2] == 0 {
                 danger[tile] = DangerType::Suji37;
             } else {
-                danger[tile] = SUHAI_DANGER_TYPE_TABLE[num][low_risk_tiles[tile + 3] as usize];
+                danger[tile] = SUHAI_DANGER_TYPE_TABLE[num][low_risk_tiles[tile - 3] as usize];
             }
         }
     }

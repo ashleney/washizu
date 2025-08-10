@@ -133,9 +133,14 @@ impl ExpandedState {
             .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "{} ({}){}{}\n{}",
+            "{} ({}{}){}{}\n{}",
             riichi::hand::tiles_to_string(&self.state.tehai, self.state.akas_in_hand),
             self.shanten,
+            if self.state.at_furiten {
+                " - furiten"
+            } else {
+                ""
+            },
             if !agari_string.is_empty() {
                 format!("\nwaits: {agari_string}")
             } else {
@@ -152,9 +157,9 @@ impl ExpandedState {
 }
 
 pub fn main() {
-    let mut state = riichi::state::PlayerState::new(1);
+    let mut state = riichi::state::PlayerState::new(3);
     // for event in read_json_log("old/12483_8389512805380735157_a.json").unwrap() {
-    for event in read_ekyumoe_log("5cfd81c76778959d.json") {
+    for event in read_ekyumoe_log("b20edf4598aab934.json") {
         state.update(&event).unwrap();
         println!("\n{event:?}");
         if let riichi::mjai::Event::Tsumo { actor, .. } = event
