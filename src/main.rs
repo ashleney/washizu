@@ -76,6 +76,11 @@ impl ExpandedState {
     }
 
     fn to_log_string(&self) -> String {
+        let extra_points_string = if self.state.honba > 0 || self.state.kyotaku > 0 {
+            format!("+{}", self.state.honba as i32 * 300 + self.state.kyotaku as i32 * 1000)
+        } else {
+            "".to_owned()
+        };
         let agari_string = self
             .agari
             .iter()
@@ -86,14 +91,18 @@ impl ExpandedState {
                     match agari {
                         None => "yakunashi = 0".to_owned(),
                         Some(a @ riichi::algo::agari::Agari::Normal { fu, han }) => format!(
-                            "{}han{}fu = {}",
+                            "{}han{}fu = {}{extra_points_string}",
                             han,
                             fu,
-                            a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
+                            if self.shanten == -1 {
+                                a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
+                            } else {
+                                a.point(self.state.is_oya()).ron
+                            }
                         ),
                         Some(a @ riichi::algo::agari::Agari::Yakuman(count)) => format!(
-                            "{}yakuman = {}",
-                            count,
+                            "{}yakuman = {}{extra_points_string}",
+                            if *count == 1 { "".to_owned() } else { format!("{count}x ") },
                             a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
                         ),
                     }
@@ -136,11 +145,7 @@ impl ExpandedState {
             "{} ({}{}){}{}\n{}",
             riichi::hand::tiles_to_string(&self.state.tehai, self.state.akas_in_hand),
             self.shanten,
-            if self.state.at_furiten {
-                " - furiten"
-            } else {
-                ""
-            },
+            if self.state.at_furiten { " - furiten" } else { "" },
             if !agari_string.is_empty() {
                 format!("\nwaits: {agari_string}")
             } else {
@@ -157,16 +162,42 @@ impl ExpandedState {
 }
 
 pub fn main() {
-    let mut state = riichi::state::PlayerState::new(3);
-    // for event in read_json_log("old/12483_8389512805380735157_a.json").unwrap() {
-    for event in read_ekyumoe_log("b20edf4598aab934.json") {
-        state.update(&event).unwrap();
-        println!("\n{event:?}");
-        if let riichi::mjai::Event::Tsumo { actor, .. } = event
-            && actor != state.player_id
-        {
-            continue;
+    let player_id = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse::<u8>().ok())
+        .expect("Missing player_id");
+    if let Some(path) = std::env::args().nth(2) {
+        let mut state = riichi::state::PlayerState::new(player_id);
+        for event in read_ekyumoe_log(&path) {
+            state.update(&event).unwrap();
+            println!("\n{event:?}");
+            if let riichi::mjai::Event::Tsumo { actor, .. } = event
+                && actor != state.player_id
+            {
+                continue;
+            }
+            println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
         }
-        println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
+    } else {
+        let mut state = riichi::state::PlayerState::new(player_id);
+        let stdin = std::io::stdin();
+        for line in stdin.lock().lines() {
+            let Ok(l) = line else {
+                eprintln!("failed to read line");
+                continue;
+            };
+            let Ok(event) = serde_json::from_str::<riichi::mjai::Event>(&l) else {
+                eprintln!("failed to parse json");
+                continue;
+            };
+            state.update(&event).unwrap();
+            if let riichi::mjai::Event::Tsumo { actor, .. } = event
+                && actor != state.player_id
+            {
+                continue;
+            }
+            print!("\x1B[2J\x1B[1;1H");
+            println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
+        }
     }
 }
