@@ -1,6 +1,7 @@
 mod danger;
 mod mortalcompat;
 use mortalcompat::{ActionType, calculate_agari, single_player_tables_after_calls};
+use riichi::{must_tile, tu8};
 use std::io::BufRead;
 
 use crate::mortalcompat::CandidateExt;
@@ -37,19 +38,23 @@ pub struct ExpandedState {
     /// Candidates are sorted by expected value.
     /// Shanten down candidates are not processed for hands with 3+ shanten.
     candidates: Vec<(ActionType, Vec<riichi::algo::sp::Candidate>)>,
-    /// Agari (including specific han and fu) of individual waits.
+    /// Agari score (including specific han and fu) of individual waits.
     /// For tenpai hands assumes the score is calculated as ron with no ura-dora.
     /// For agari hands (implied tsumo) the tile will be "?" and the score will be calculated as tsumo with no ura-dora.
     agari: Vec<(riichi::tile::Tile, Option<riichi::algo::agari::Agari>)>,
-    /// The type of danger for each tile for each player (rel shimocha, toimen, kamicha).
-    /// Safety only accounts for genbutsu, chance and ryanmen strategies and can be easily bluffed.
-    danger: [[danger::Danger; 34]; 3],
+    /// Danger weights and wait types for each tile based on a player's discard.
+    /// Estimates danger by calculating the amount of tile combinations that can lead to a player having this wait.
+    /// Uses multipliers for more common types of waits. Does not analyze tedashi patterns.
+    danger: [danger::PlayerDanger; 3],
+    /// Wall danger kind for each tile based on Chance rules. Player danger implicitly already calculates Chance.
+    wall_danger: [danger::WallDangerKind; 34],
 }
 
 impl ExpandedState {
     pub fn from_state(state: riichi::state::PlayerState) -> Self {
         let shanten = state.real_time_shanten();
 
+        // TODO: proper agari after Hora event
         Self {
             shanten,
             candidates: single_player_tables_after_calls(&state),
@@ -70,7 +75,8 @@ impl ExpandedState {
             } else {
                 vec![]
             },
-            danger: danger::calculate_board_tile_danger(&state),
+            danger: danger::calculate_board_danger(&state),
+            wall_danger: danger::calculate_wall_danger(&state.tiles_seen.map(|x| 4 - x)),
             state,
         }
     }
@@ -94,7 +100,7 @@ impl ExpandedState {
                             "{}han{}fu = {}{extra_points_string}",
                             han,
                             fu,
-                            if self.shanten == -1 {
+                            if *tile == must_tile!(tu8!(?)) {
                                 a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
                             } else {
                                 a.point(self.state.is_oya()).ron
@@ -128,18 +134,27 @@ impl ExpandedState {
             .join("\n");
         let danger_string = self
             .danger
-            .iter()
+            .clone()
             .map(|danger| {
-                let mut danger = danger.clone().to_vec();
-                danger.sort_by(|a, b| b.danger_score.partial_cmp(&a.danger_score).unwrap());
                 danger
+                    .sorted_tile_weights()
                     .iter()
-                    .filter(|danger| !matches!(danger.danger_type, danger::DangerType::Safe))
-                    .map(|danger| danger.to_short_string())
+                    .filter(|(_, danger)| *danger > 0.0)
+                    .map(|(tile, danger)| {
+                        format!(
+                            "{}({:.1}{})",
+                            tile,
+                            danger,
+                            if !matches!(self.wall_danger[tile.as_usize()], danger::WallDangerKind::None) {
+                                self.wall_danger[tile.as_usize()].to_acronym()
+                            } else {
+                                ""
+                            }
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join(" ")
             })
-            .collect::<Vec<_>>()
             .join("\n");
         format!(
             "{} ({}{}){}{}\n{}",
@@ -156,7 +171,7 @@ impl ExpandedState {
             } else {
                 "".to_string()
             },
-            danger_string,
+            danger_string
         )
     }
 }

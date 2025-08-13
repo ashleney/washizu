@@ -1,10 +1,10 @@
-//! Port of EndlessCheng's tile risk calculation.
-//! Intended to help a player understand an engine's decision, rather than determining what's the safest discard.
-//! original: <https://github.com/EndlessCheng/mahjong-helper/blob/master/util/risk_base.go>
+//! Port of killerducky's tile danger calculation.
+//! Intended to help a player understand an engine's decision.
+//! original: <https://github.com/killerducky/killer_mortal_gui#dealin-rate>
 
 /// Wall danger for ryanmen waits using chance strategies.
 #[derive(Copy, Clone, Debug)]
-pub enum WallDangerType {
+pub enum WallDangerKind {
     /// no guarantees about the danger of the tile
     None,
     /// tanki (single wait), shanpon (pair wait)
@@ -19,398 +19,345 @@ pub enum WallDangerType {
     OneChance,
 }
 
-impl WallDangerType {
+impl WallDangerKind {
     pub fn to_acronym(self) -> &'static str {
         match self {
-            WallDangerType::None => "",
-            WallDangerType::DoubleNoChance => "DNC",
-            WallDangerType::NoChance => "NC",
-            WallDangerType::DoubleOneChance => "DOC",
-            WallDangerType::MixedOneChance => "MOC",
-            WallDangerType::OneChance => "OC",
+            WallDangerKind::None => "",
+            WallDangerKind::DoubleNoChance => "DNC",
+            WallDangerKind::NoChance => "NC",
+            WallDangerKind::DoubleOneChance => "DOC",
+            WallDangerKind::MixedOneChance => "MOC",
+            WallDangerKind::OneChance => "OC",
         }
     }
 }
 
-/// Type of danger sorted most to least danger.
-/// This is not a good metric and is meant more for quickly understanding the board state.
-#[derive(Copy, Clone, Debug)]
-pub enum DangerType {
-    NoSuji5 = 0,
-    NoSuji46,
-    NoSuji37,
-    NoSuji28,
-    NoSuji19,
-    HalfSuji5,
-    HalfSuji46A,
-    HalfSuji46B,
-    Suji37,
-    Suji28,
-    Suji19,
-    DoubleSuji5,
-    DoubleSuji46,
-    YakuHaiLeft3,
-    YakuHaiLeft2,
-    YakuHaiLeft1,
-    OtakazeLeft3,
-    OtakazeLeft2,
-    OtakazeLeft1,
-    Safe,
+/// Simple kinds of waits used for danger calculation.
+#[derive(Debug, Clone, Copy)]
+pub enum WaitKind {
+    Ryanmen,
+    Kanchan,
+    Penchan,
+    Tanki,
+    Shanpon,
 }
 
-impl DangerType {
-    pub fn to_part_string(self) -> &'static str {
-        match self {
-            DangerType::NoSuji46 => "",
-            DangerType::NoSuji5 => "",
-            DangerType::NoSuji37 => "",
-            DangerType::NoSuji28 => "",
-            DangerType::HalfSuji46B => "Hsuji",
-            DangerType::NoSuji19 => "",
-            DangerType::HalfSuji5 => "Hsuji",
-            DangerType::HalfSuji46A => "Hsuji",
-            DangerType::Suji37 => "suji",
-            DangerType::YakuHaiLeft3 => "",
-            DangerType::OtakazeLeft3 => "",
-            DangerType::Suji28 => "suji",
-            DangerType::DoubleSuji46 => "Dsuji",
-            DangerType::DoubleSuji5 => "Dsuji",
-            DangerType::YakuHaiLeft2 => "",
-            DangerType::OtakazeLeft2 => "",
-            DangerType::Suji19 => "suji",
-            DangerType::YakuHaiLeft1 => "",
-            DangerType::OtakazeLeft1 => "",
-            DangerType::Safe => "safe",
+/// Boardstate-agnostic wait type
+#[derive(Debug, Clone)]
+pub struct GeneralWait {
+    pub tiles: Vec<u8>,
+    pub waits: Vec<u8>,
+    pub kind: WaitKind,
+}
+
+/// A specific wait that a player might have and all its flags.
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct Wait {
+    pub wait: GeneralWait,
+    pub genbutsu: bool,
+    pub combinations: u8,
+    pub ura_suji: bool,
+    pub matagi_suji_early: bool,
+    pub matagi_suji_riichi: bool,
+    pub riichi_suji_trap: bool,
+    pub dora_involved: bool,
+    pub weight: f32,
+}
+
+impl Wait {
+    /// The weight specifically for this wait
+    /// Doubles the weight of shanpon.
+    #[allow(dead_code)]
+    pub fn individual_weight(&self) -> f32 {
+        if matches!(self.wait.kind, WaitKind::Shanpon) {
+            self.weight * 2.0
+        } else {
+            self.weight
         }
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Danger {
-    pub tile: riichi::tile::Tile,
-    pub danger_type: DangerType,
-    pub wall_danger_type: WallDangerType,
-    pub danger_score: f64,
+/// The danger weights for a specific player for each tile
+#[derive(Clone, Debug)]
+pub struct PlayerDanger {
+    pub tile_weights: [f32; 34],
+    #[allow(dead_code)]
+    pub waits: Vec<Wait>,
 }
 
-impl Danger {
-    /// The danger score of a given danger type at a specific turn.
-    /// dora tiles should be multiplied by factor
-    fn calculate_danger_score(&self, turn: u8, is_dora: bool) -> f64 {
-        let effective_danger_type = match self.wall_danger_type {
-            WallDangerType::DoubleNoChance => DangerType::Suji19,
-            WallDangerType::NoChance => match self.tile.as_u8() % 9 + 1 {
-                1 | 9 => DangerType::Suji19,
-                2 | 8 => DangerType::Suji19,
-                3 | 7 => DangerType::Suji28,
-                4 | 6 => DangerType::DoubleSuji46,
-                5 => DangerType::DoubleSuji5,
-                _ => unreachable!(),
-            },
-            _ => self.danger_type,
-        };
-        let mut score = match effective_danger_type {
-            DangerType::Safe => return 0.0,
-            x => RISK_RATE[turn.clamp(0, 18) as usize][x as usize],
-        };
-        if is_dora {
-            score *= DORA_RISK_RATE[effective_danger_type as usize];
-        }
-
-        score
+impl PlayerDanger {
+    pub fn sorted_tile_weights(&self) -> Vec<(riichi::tile::Tile, f32)> {
+        let mut tile_weights = self
+            .tile_weights
+            .iter()
+            .enumerate()
+            .map(|(tile, weight)| (riichi::must_tile!(tile), *weight))
+            .collect::<Vec<_>>();
+        tile_weights.sort_unstable_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
+        tile_weights
     }
-    pub fn to_short_string(self) -> String {
-        let meta_string = [
-            self.danger_type.to_part_string().to_owned(),
-            match self.wall_danger_type {
-                WallDangerType::None => "".to_owned(),
-                x => x.to_acronym().to_string(),
-            },
-        ]
-        .iter()
-        .filter_map(|x| if x.is_empty() { None } else { Some(x.clone()) })
-        .collect::<Vec<_>>()
-        .join(" ");
+}
 
-        format!(
-            "{}[{:.1}]{}",
-            self.tile,
-            self.danger_score,
-            if meta_string.is_empty() {
-                "".to_owned()
-            } else {
-                format!("({meta_string})")
+pub static POSSIBLE_WAITS: std::sync::LazyLock<Vec<GeneralWait>> = std::sync::LazyLock::new(|| {
+    let mut waits_array: Vec<GeneralWait> = Vec::new();
+
+    for suit in 0..3 {
+        for number in 1..7 {
+            waits_array.push(GeneralWait {
+                tiles: vec![suit * 9 + number, suit * 9 + number + 1],
+                waits: vec![suit * 9 + number - 1, suit * 9 + number + 2],
+                kind: WaitKind::Ryanmen,
+            });
+        }
+    }
+    for suit in 0..3 {
+        for number in 1..8 {
+            waits_array.push(GeneralWait {
+                tiles: vec![suit * 9 + number - 1, suit * 9 + number + 1],
+                waits: vec![suit * 9 + number],
+                kind: WaitKind::Kanchan,
+            });
+        }
+    }
+
+    for suit in 0..3 {
+        waits_array.push(GeneralWait {
+            tiles: vec![suit * 9, suit * 9 + 1],
+            waits: vec![suit * 9 + 2],
+            kind: WaitKind::Penchan,
+        });
+        waits_array.push(GeneralWait {
+            tiles: vec![suit * 9 + 7, suit * 9 + 8],
+            waits: vec![suit * 9 + 6],
+            kind: WaitKind::Penchan,
+        });
+    }
+
+    for suit in 0..=3 {
+        for number in 0..9 {
+            if suit == 3 && number > 6 {
+                continue;
             }
-        )
+            waits_array.push(GeneralWait {
+                tiles: vec![suit * 9 + number],
+                waits: vec![suit * 9 + number],
+                kind: WaitKind::Shanpon,
+            });
+            waits_array.push(GeneralWait {
+                tiles: vec![suit * 9 + number],
+                waits: vec![suit * 9 + number],
+                kind: WaitKind::Tanki,
+            });
+        }
     }
+
+    waits_array
+});
+
+fn calculate_player_danger(
+    safe_tiles: [bool; 34],
+    discards_before_riichi: Vec<u8>,
+    riichi_tile: Option<u8>,
+    unseen_tiles: [u8; 34],
+    doras: Vec<u8>,
+) -> PlayerDanger {
+    let mut waits = vec![];
+    let mut tile_weights = [0.0; 34];
+    for wait in POSSIBLE_WAITS.iter() {
+        let genbutsu = wait.waits.iter().any(|&tile| safe_tiles[tile as usize]);
+        let combinations = if matches!(wait.kind, WaitKind::Shanpon) {
+            (unseen_tiles[wait.tiles[0] as usize] * unseen_tiles[wait.tiles[0] as usize] - 1) / 2
+        } else {
+            let mut combinations = 1;
+            for &tile in wait.tiles.iter() {
+                combinations *= unseen_tiles[tile as usize];
+            }
+            combinations
+        };
+
+        let mut ura_suji = false;
+        let mut matagi_suji_early = false;
+        let mut matagi_suji_riichi = false;
+        if matches!(wait.kind, WaitKind::Ryanmen) {
+            for discarded_tile in discards_before_riichi.iter() {
+                if !matches!(discarded_tile % 9, 3..6) {
+                    continue;
+                }
+                if wait.tiles.contains(discarded_tile) {
+                    continue;
+                }
+                for &wait_tile in wait.tiles.iter() {
+                    if discarded_tile.abs_diff(wait_tile) == 2 {
+                        ura_suji = true;
+                        break;
+                    }
+                }
+            }
+            for discarded_tile in discards_before_riichi.iter() {
+                if wait.tiles.contains(discarded_tile) {
+                    matagi_suji_early = true;
+                    break;
+                }
+            }
+            if let Some(riichi_tile) = riichi_tile
+                && wait.tiles.contains(&riichi_tile)
+            {
+                matagi_suji_riichi = true;
+            }
+        }
+        let riichi_suji_trap = matches!(wait.kind, WaitKind::Kanchan)
+            && riichi_tile.is_some_and(|riichi_tile| {
+                matches!(riichi_tile % 9, 3..6) && wait.waits.iter().any(|wait_tile| riichi_tile.abs_diff(*wait_tile) == 3)
+            });
+        let dora_involved = wait
+            .tiles
+            .iter()
+            .chain(wait.waits.iter())
+            .any(|involved_tile| doras.contains(involved_tile));
+
+        let weight = if genbutsu {
+            0.0
+        } else {
+            let mut weight = combinations as f32;
+            weight *= match wait.kind {
+                WaitKind::Ryanmen => 3.5,
+                WaitKind::Tanki | WaitKind::Shanpon if wait.tiles[0] >= 27 => 1.7,
+                WaitKind::Tanki | WaitKind::Shanpon => 1.0,
+                WaitKind::Kanchan if riichi_suji_trap => 2.6,
+                WaitKind::Kanchan => 0.21,
+                WaitKind::Penchan => 1.0,
+            };
+            if ura_suji {
+                weight *= 1.3;
+            }
+            if matagi_suji_early {
+                weight *= 0.6;
+            }
+            if matagi_suji_riichi {
+                weight *= 1.2;
+            }
+            if dora_involved {
+                weight *= 1.2;
+            }
+            weight
+        };
+        for &wait_tile in wait.waits.iter() {
+            tile_weights[wait_tile as usize] += weight;
+        }
+
+        waits.push(Wait {
+            wait: wait.clone(),
+            genbutsu,
+            combinations,
+            ura_suji,
+            matagi_suji_early,
+            matagi_suji_riichi,
+            riichi_suji_trap,
+            dora_involved,
+            weight,
+        });
+    }
+
+    PlayerDanger { tile_weights, waits }
 }
 
-const SUHAI_DANGER_TYPE_TABLE: [&[DangerType]; 9] = [
-    &[DangerType::NoSuji19, DangerType::Suji19],
-    &[DangerType::NoSuji28, DangerType::Suji28],
-    &[DangerType::NoSuji37, DangerType::Suji37],
-    &[
-        DangerType::NoSuji46,
-        DangerType::HalfSuji46B,
-        DangerType::HalfSuji46A,
-        DangerType::DoubleSuji46,
-    ],
-    &[
-        DangerType::NoSuji5,
-        DangerType::HalfSuji5,
-        DangerType::HalfSuji5,
-        DangerType::DoubleSuji5,
-    ],
-    &[
-        DangerType::NoSuji46,
-        DangerType::HalfSuji46A,
-        DangerType::HalfSuji46B,
-        DangerType::DoubleSuji46,
-    ],
-    &[DangerType::NoSuji37, DangerType::Suji37],
-    &[DangerType::NoSuji28, DangerType::Suji28],
-    &[DangerType::NoSuji19, DangerType::Suji19],
-];
-const JIHAI_DANGER_TYPE_TABLE: [[DangerType; 4]; 2] = [
-    [
-        DangerType::OtakazeLeft1,
-        DangerType::OtakazeLeft2,
-        DangerType::OtakazeLeft3,
-        DangerType::OtakazeLeft3,
-    ],
-    [
-        DangerType::YakuHaiLeft1,
-        DangerType::YakuHaiLeft2,
-        DangerType::YakuHaiLeft3,
-        DangerType::YakuHaiLeft3,
-    ],
-];
-
-/// risk rate during specific turns of specific tile wait types
-#[rustfmt::skip]
-pub const RISK_RATE: [[f64; 19]; 20] = [
-    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    [5.7, 5.7, 5.8, 4.7, 3.4, 2.5, 2.5, 3.1, 5.6, 3.8, 1.8, 0.8, 2.6, 2.1, 1.2, 0.5, 2.4, 1.4, 1.2],
-    [6.6, 6.9, 6.3, 5.2, 4.0, 3.5, 3.5, 4.1, 5.3, 3.5, 1.9, 0.8, 2.6, 2.3, 1.2, 0.5, 2.7, 1.3, 0.4],
-    [7.7, 8.0, 6.7, 5.8, 4.6, 4.3, 4.1, 4.9, 5.2, 3.6, 1.8, 1.6, 2.0, 2.4, 1.2, 0.3, 2.6, 1.2, 0.3],
-    [8.5, 8.9, 7.1, 6.2, 5.1, 4.8, 4.7, 5.6, 5.2, 3.8, 1.7, 1.6, 2.0, 2.6, 1.1, 0.2, 2.6, 1.2, 0.2],
-    [9.4, 9.7, 7.5, 6.7, 5.5, 5.3, 5.1, 6.0, 5.3, 3.7, 1.7, 1.7, 2.0, 2.9, 1.2, 0.2, 2.8, 1.2, 0.2],
-    [10.2, 10.5, 7.9, 7.1, 5.9, 5.8, 5.6, 6.4, 5.2, 3.7, 1.7, 1.8, 2.0, 3.2, 1.3, 0.2, 2.9, 1.3, 0.2],
-    [11.0, 11.3, 8.4, 7.5, 6.3, 6.3, 6.1, 6.8, 5.3, 3.7, 1.7, 2.0, 2.1, 3.6, 1.4, 0.2, 3.2, 1.4, 0.2],
-    [11.9, 12.2, 8.9, 8.0, 6.8, 6.9, 6.6, 7.4, 5.3, 3.8, 1.7, 2.1, 2.2, 4.0, 1.6, 0.2, 3.5, 1.6, 0.2],
-    [12.8, 13.1, 9.5, 8.6, 7.4, 7.4, 7.2, 7.9, 5.5, 3.9, 1.8, 2.2, 2.3, 4.6, 1.9, 0.3, 4.0, 1.8, 0.2],
-    [13.8, 14.1, 10.1, 9.2, 8.0, 8.0, 7.8, 8.5, 5.6, 4.0, 1.9, 2.4, 2.4, 5.3, 2.2, 0.3, 4.6, 2.1, 0.3],
-    [14.9, 15.1, 10.8, 9.9, 8.7, 8.7, 8.5, 9.2, 5.7, 4.2, 2.0, 2.5, 2.6, 6.0, 2.6, 0.4, 5.1, 2.5, 0.3],
-    [16.0, 16.3, 11.6, 10.6, 9.4, 9.4, 9.2, 9.9, 6.0, 4.4, 2.2, 2.7, 2.7, 6.8, 3.1, 0.4, 5.1, 2.5, 0.3],
-    [17.2, 17.5, 12.4, 11.4, 10.2, 10.2, 10.0, 10.6, 6.2, 4.6, 2.4, 3.0, 3.0, 7.8, 3.7, 0.5, 6.6, 3.7, 0.5],
-    [18.5, 18.8, 13.3, 12.3, 11.1, 11.0, 10.9, 11.4, 6.6, 4.9, 2.7, 3.2, 3.1, 8.8, 4.4, 0.7, 7.4, 4.4, 0.6],
-    [19.9, 20.1, 14.3, 13.3, 12.0, 11.9, 11.8, 12.3, 7.0, 5.3, 3.0, 3.4, 3.4, 9.9, 5.2, 0.8, 8.4, 5.3, 0.8],
-    [21.3, 21.7, 15.4, 14.3, 13.1, 12.9, 12.8, 13.3, 7.4, 5.7, 3.3, 3.7, 3.6, 11.2, 6.2, 1.0, 9.4, 6.5, 0.9],
-    [22.9, 23.2, 16.6, 15.4, 14.2, 14.0, 13.8, 14.4, 8.0, 6.1, 3.6, 3.9, 3.9, 12.4, 7.3, 1.3, 10.5, 7.7, 1.2],
-    [24.7, 24.9, 17.9, 16.7, 15.4, 15.2, 15.0, 15.6, 8.5, 6.6, 4.0, 4.3, 4.2, 13.9, 8.5, 1.7, 11.8, 9.4, 1.6],
-    [27.5, 27.8, 20.4, 19.1, 17.8, 17.5, 17.5, 17.5, 9.8, 7.4, 5.0, 5.1, 5.1, 18.1, 12.1, 2.8, 14.7, 12.6, 2.1],
-];
-
-#[rustfmt::skip]
-pub const DORA_RISK_RATE: [f64; 19] = [1.565, 1.540, 1.706, 1.664, 1.747, 1.769, 1.669, 1.777, 1.948, 2.040, 3.083, 2.645, 2.531, 1.619, 2.186, 5.252, 2.095, 2.738, 6.571];
-
-/// Calculate general wall danger based on NoChance and OneChance strategies, including guaranteed suji
-fn calculate_wall_danger(tiles: &[u8; 34], safe_tiles: &[bool; 34]) -> [WallDangerType; 34] {
-    let mut result = [WallDangerType::None; 34];
+/// Calculate general wall danger based on NoChance and OneChance strategies
+/// original: <https://github.com/EndlessCheng/mahjong-helper/blob/master/util/risk_base.go>
+pub fn calculate_wall_danger(unseen_tiles: &[u8; 34]) -> [WallDangerKind; 34] {
+    let mut result = [WallDangerKind::None; 34];
 
     for i in 0..3 {
         for j in 0..3 {
             let idx = 9 * i + j;
-            if tiles[idx + 1] == 1 && tiles[idx + 2] == 1 {
-                result[idx] = WallDangerType::DoubleOneChance;
-            } else if tiles[idx + 1] == 1 || tiles[idx + 2] == 1 {
-                result[idx] = WallDangerType::OneChance;
+            if unseen_tiles[idx + 1] == 1 && unseen_tiles[idx + 2] == 1 {
+                result[idx] = WallDangerKind::DoubleOneChance;
+            } else if unseen_tiles[idx + 1] == 1 || unseen_tiles[idx + 2] == 1 {
+                result[idx] = WallDangerKind::OneChance;
             }
         }
         for j in 3..6 {
             let idx = 9 * i + j;
-            if (tiles[idx - 2] == 1 || tiles[idx - 1] == 1) && (tiles[idx + 1] == 1 || tiles[idx + 2] == 1) {
-                if tiles[idx - 2] == 1 && tiles[idx - 1] == 1 && tiles[idx + 1] == 1 && tiles[idx + 2] == 1 {
-                    result[idx] = WallDangerType::DoubleOneChance;
-                } else if (tiles[idx - 2] == 1 && tiles[idx - 1] == 1) || (tiles[idx + 1] == 1 && tiles[idx + 2] == 1) {
-                    result[idx] = WallDangerType::MixedOneChance;
+            if (unseen_tiles[idx - 2] == 1 || unseen_tiles[idx - 1] == 1)
+                && (unseen_tiles[idx + 1] == 1 || unseen_tiles[idx + 2] == 1)
+            {
+                if unseen_tiles[idx - 2] == 1
+                    && unseen_tiles[idx - 1] == 1
+                    && unseen_tiles[idx + 1] == 1
+                    && unseen_tiles[idx + 2] == 1
+                {
+                    result[idx] = WallDangerKind::DoubleOneChance;
+                } else if (unseen_tiles[idx - 2] == 1 && unseen_tiles[idx - 1] == 1)
+                    || (unseen_tiles[idx + 1] == 1 && unseen_tiles[idx + 2] == 1)
+                {
+                    result[idx] = WallDangerKind::MixedOneChance;
                 } else {
-                    result[idx] = WallDangerType::OneChance;
+                    result[idx] = WallDangerKind::OneChance;
                 }
             }
         }
         for j in 6..9 {
             let idx = 9 * i + j;
-            if tiles[idx - 2] == 1 && tiles[idx - 1] == 1 {
-                result[idx] = WallDangerType::DoubleOneChance;
-            } else if tiles[idx - 2] == 1 || tiles[idx - 1] == 1 {
-                result[idx] = WallDangerType::OneChance;
+            if unseen_tiles[idx - 2] == 1 && unseen_tiles[idx - 1] == 1 {
+                result[idx] = WallDangerKind::DoubleOneChance;
+            } else if unseen_tiles[idx - 2] == 1 || unseen_tiles[idx - 1] == 1 {
+                result[idx] = WallDangerKind::OneChance;
             }
         }
     }
     for i in 0..3 {
         for j in 0..3 {
             let idx = 9 * i + j;
-            if tiles[idx + 1] == 0 || tiles[idx + 2] == 0 {
-                result[idx] = WallDangerType::NoChance;
+            if unseen_tiles[idx + 1] == 0 || unseen_tiles[idx + 2] == 0 {
+                result[idx] = WallDangerKind::NoChance;
             }
         }
         for j in 3..6 {
             let idx = 9 * i + j;
-            if (tiles[idx - 2] == 0 || tiles[idx - 1] == 0) && (tiles[idx + 1] == 0 || tiles[idx + 2] == 0) {
-                result[idx] = WallDangerType::NoChance;
+            if (unseen_tiles[idx - 2] == 0 || unseen_tiles[idx - 1] == 0)
+                && (unseen_tiles[idx + 1] == 0 || unseen_tiles[idx + 2] == 0)
+            {
+                result[idx] = WallDangerKind::NoChance;
             }
         }
         for j in 6..9 {
             let idx = 9 * i + j;
-            if tiles[idx - 2] == 0 || tiles[idx - 1] == 0 {
-                result[idx] = WallDangerType::NoChance;
+            if unseen_tiles[idx - 2] == 0 || unseen_tiles[idx - 1] == 0 {
+                result[idx] = WallDangerKind::NoChance;
             }
         }
     }
     for i in 0..3 {
-        if tiles[9 * i + 1] == 0 || tiles[9 * i + 2] == 0 {
-            result[9 * i] = WallDangerType::DoubleNoChance;
+        if unseen_tiles[9 * i + 1] == 0 || unseen_tiles[9 * i + 2] == 0 {
+            result[9 * i] = WallDangerKind::DoubleNoChance;
         }
-        if tiles[9 * i + 2] == 0 || (tiles[9 * i] == 0 && tiles[9 * i + 3] == 0) {
-            result[9 * i + 1] = WallDangerType::DoubleNoChance;
+        if unseen_tiles[9 * i + 2] == 0 || (unseen_tiles[9 * i] == 0 && unseen_tiles[9 * i + 3] == 0) {
+            result[9 * i + 1] = WallDangerKind::DoubleNoChance;
         }
         for j in 2..=6 {
             let idx = 9 * i + j;
-            if (tiles[idx - 2] == 0 && tiles[idx + 1] == 0)
-                || (tiles[idx - 1] == 0 && tiles[idx + 1] == 0)
-                || (tiles[idx - 1] == 0 && tiles[idx + 2] == 0)
+            if (unseen_tiles[idx - 2] == 0 && unseen_tiles[idx + 1] == 0)
+                || (unseen_tiles[idx - 1] == 0 && unseen_tiles[idx + 1] == 0)
+                || (unseen_tiles[idx - 1] == 0 && unseen_tiles[idx + 2] == 0)
             {
-                result[idx] = WallDangerType::DoubleNoChance;
+                result[idx] = WallDangerKind::DoubleNoChance;
             }
         }
-        if tiles[9 * i + 6] == 0 || (tiles[9 * i + 5] == 0 && tiles[9 * i + 8] == 0) {
-            result[9 * i + 7] = WallDangerType::DoubleNoChance;
+        if unseen_tiles[9 * i + 6] == 0 || (unseen_tiles[9 * i + 5] == 0 && unseen_tiles[9 * i + 8] == 0) {
+            result[9 * i + 7] = WallDangerKind::DoubleNoChance;
         }
-        if tiles[9 * i + 6] == 0 || tiles[9 * i + 7] == 0 {
-            result[9 * i + 8] = WallDangerType::DoubleNoChance;
-        }
-    }
-    for i in 0..3 {
-        for j in 1..3 {
-            let idx = 9 * i + j;
-            if tiles[idx - 1] == 0 && safe_tiles[idx + 3] {
-                result[idx] = WallDangerType::DoubleNoChance;
-            }
-        }
-        for j in 3..6 {
-            let idx = 9 * i + j;
-            if (tiles[idx - 1] == 0 && safe_tiles[idx + 3]) || (tiles[idx + 1] == 0 && safe_tiles[idx - 3]) {
-                result[idx] = WallDangerType::DoubleNoChance;
-            }
-        }
-        for j in 6..8 {
-            let idx = 9 * i + j;
-            if tiles[idx + 1] == 0 && safe_tiles[idx - 3] {
-                result[idx] = WallDangerType::DoubleNoChance;
-            }
+        if unseen_tiles[9 * i + 6] == 0 || unseen_tiles[9 * i + 7] == 0 {
+            result[9 * i + 8] = WallDangerKind::DoubleNoChance;
         }
     }
 
     result
 }
 
-/// Calculate general wall danger based on NoChance and OneChance strategies
-#[allow(dead_code)]
-pub fn calculate_general_wall_danger(left_tiles: &[u8; 34]) -> [WallDangerType; 34] {
-    calculate_wall_danger(left_tiles, &[false; 34])
-}
-
-/// Calculate the danger for each tile based on safe and left tiles using suji and genbutsu strategies
-pub fn calculate_tile_danger(
-    safe_tiles: &[bool; 34],
-    left_tiles: &[u8; 34],
-    round_wind_tile: u8,
-    player_wind_tile: u8,
-    turns: u8,
-    doras: Vec<u8>,
-) -> [Danger; 34] {
-    let wall_danger = calculate_wall_danger(left_tiles, safe_tiles);
-    let mut low_risk_tiles = *safe_tiles;
-    for (tile, &danger) in wall_danger.iter().enumerate() {
-        if matches!(danger, WallDangerType::DoubleNoChance | WallDangerType::NoChance) {
-            low_risk_tiles[tile] = true;
-        }
-    }
-
-    let mut danger = [DangerType::Safe; 34];
-    for kind in 0..3 {
-        for num in 0..3 {
-            let tile = 9 * kind + num;
-            if num == 0 && safe_tiles[num + 3] && left_tiles[tile] == 0 {
-                danger[tile] = DangerType::Safe;
-            } else if num == 2 && left_tiles[tile + 2] == 0 {
-                danger[tile] = DangerType::Suji37;
-            } else {
-                danger[tile] = SUHAI_DANGER_TYPE_TABLE[num][low_risk_tiles[tile + 3] as usize];
-            }
-        }
-        for num in 3..6 {
-            let tile = 9 * kind + num;
-            danger[tile] =
-                SUHAI_DANGER_TYPE_TABLE[num][((low_risk_tiles[tile - 3] as usize) << 1) | (low_risk_tiles[tile + 3] as usize)];
-        }
-        for num in 6..9 {
-            let tile = 9 * kind + num;
-            if num == 8 && safe_tiles[tile - 3] && left_tiles[tile] == 0 {
-                danger[tile] = DangerType::Safe;
-            } else if num == 6 && left_tiles[tile - 2] == 0 {
-                danger[tile] = DangerType::Suji37;
-            } else {
-                danger[tile] = SUHAI_DANGER_TYPE_TABLE[num][low_risk_tiles[tile - 3] as usize];
-            }
-        }
-    }
-    for tile in 27..34 {
-        if left_tiles[tile] == 0 {
-            danger[tile] = DangerType::Safe;
-        } else {
-            let yakuhai = tile as u8 == round_wind_tile || tile as u8 == player_wind_tile;
-            danger[tile] = JIHAI_DANGER_TYPE_TABLE[yakuhai as usize][(left_tiles[tile] - 1) as usize]
-        }
-    }
-
-    for (tile, &wall_danger) in wall_danger.iter().take(27).enumerate() {
-        if matches!(wall_danger, WallDangerType::DoubleNoChance) && left_tiles[tile] == 0 {
-            danger[tile] = DangerType::Safe;
-        }
-    }
-
-    for (tile, &safe) in safe_tiles.iter().enumerate() {
-        if safe {
-            danger[tile] = DangerType::Safe;
-        }
-    }
-
-    danger
-        .iter()
-        .cloned()
-        .zip(wall_danger)
-        .enumerate()
-        .map(|(tile, (danger_type, wall_danger_type))| {
-            let mut d = Danger {
-                tile: riichi::must_tile!(tile),
-                danger_type,
-                wall_danger_type,
-                danger_score: 0.0,
-            };
-            d.danger_score = d.calculate_danger_score(turns, doras.contains(&(tile as u8)));
-            d
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
-}
-
 /// Determines safe tiles for the other three players asuming kawa is relative
 fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<riichi::state::item::KawaItem>; 24]>; 4]) -> [[bool; 34]; 3] {
     let mut safe_tiles = [[false; 34]; 3]; // furiten
-    let mut temporary_safe_tiles = [[false; 34]; 3]; // temporary furiten, riichi furiten, and implied no wait change
+    let mut temporary_safe_tiles = [[false; 34]; 3]; // temporary furiten, riichi furiten, or implied no wait change
 
     for turn in 0..(kawa.iter().map(|x| x.len()).max().unwrap_or_default()) {
         for kawa_actor in 0..=3 {
@@ -430,8 +377,8 @@ fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<riichi::state::item::Ka
     }
 
     for (player, tiles) in temporary_safe_tiles.iter().enumerate() {
-        for (tile, &safe) in tiles.iter().enumerate() {
-            if safe {
+        for (tile, &is_safe) in tiles.iter().enumerate() {
+            if is_safe {
                 safe_tiles[player][tile] = true;
             }
         }
@@ -440,106 +387,32 @@ fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<riichi::state::item::Ka
     safe_tiles
 }
 
-/// Calculate the danger type for each tile for each player
-pub fn calculate_board_tile_danger(state: &riichi::state::PlayerState) -> [[Danger; 34]; 3] {
-    let left_tiles = state.tiles_seen.map(|x| 4 - x);
+pub fn calculate_board_danger(state: &riichi::state::PlayerState) -> [PlayerDanger; 3] {
+    let unseen_tiles = state.tiles_seen.map(|x| 4 - x);
     determine_safe_tiles(&state.kawa)
         .iter()
         .enumerate()
         .map(|(player, safe_tiles)| {
-            calculate_tile_danger(
-                safe_tiles,
-                &left_tiles,
-                state.bakaze.as_u8(),
-                27 + (4 + player as u8 - state.oya) % 4,
-                state.at_turn,
+            let discards_before_riichi = state.kawa[player + 1]
+                .iter()
+                .filter_map(|item| item.as_ref().map(|item| item.sutehai))
+                .take_while(|item| !item.is_riichi)
+                .map(|x| x.tile.as_u8())
+                .collect::<Vec<_>>();
+            let riichi_tile = state.kawa[player + 1]
+                .iter()
+                .filter_map(|item| item.as_ref().map(|item| item.sutehai))
+                .find(|item| item.is_riichi)
+                .map(|x| x.tile.as_u8());
+            calculate_player_danger(
+                *safe_tiles,
+                discards_before_riichi,
+                riichi_tile,
+                unseen_tiles,
                 state.dora_indicators.iter().map(|x| x.next().as_u8()).collect::<Vec<_>>(),
             )
         })
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn visible_string_to_left_tiles(visible_tiles: &str) -> [u8; 34] {
-        riichi::hand::hand(visible_tiles).unwrap().map(|x| 4 - x)
-    }
-
-    fn check_wall_tiles(visible_tiles: &str, expected: &str) {
-        let tiles = calculate_general_wall_danger(&visible_string_to_left_tiles(visible_tiles));
-        let result = riichi::hand::tiles_to_string(&tiles.map(|x| !matches!(x, WallDangerType::None) as u8), [false; 3]);
-        assert_eq!(
-            expected, result,
-            "expected {visible_tiles} to have {expected} be OneChance but got {result} instead"
-        )
-    }
-
-    #[test]
-    fn test_calc_wall_tiles() {
-        check_wall_tiles("2222777888s", "189s");
-        check_wall_tiles("33337777s", "12589s");
-        check_wall_tiles("333777s", "12589s");
-        check_wall_tiles("333444777s", "1235689s");
-        check_wall_tiles("8888s", "9s");
-    }
-
-    fn check_dnc_safe_tiles(visible_tiles: &str, expected: &str) {
-        let tiles = calculate_general_wall_danger(&visible_string_to_left_tiles(visible_tiles));
-        let result = riichi::hand::tiles_to_string(&tiles.map(|x| matches!(x, WallDangerType::DoubleNoChance) as u8), [false; 3]);
-        assert_eq!(
-            expected, result,
-            "expected {visible_tiles} to have {expected} be DoubleNoChance but got {result} instead"
-        )
-    }
-
-    #[test]
-    fn test_dnc_safe_tiles() {
-        check_dnc_safe_tiles("8888s", "9s");
-        check_dnc_safe_tiles("33336666s", "1245s");
-        check_dnc_safe_tiles("33335555s", "124s");
-        check_dnc_safe_tiles("33337777s", "1289s");
-        check_dnc_safe_tiles("333355557777s", "124689s");
-    }
-
-    fn check_safe_tiles(visible_tiles: &str, safe_tiles_string: &str, expected_safe_tiles: &str) {
-        let safe_tiles = riichi::hand::hand(safe_tiles_string).unwrap().map(|x| x > 0);
-        let left_tiles = visible_string_to_left_tiles(visible_tiles);
-        let expected_safe_tiles = riichi::hand::hand(expected_safe_tiles).unwrap().map(|x| x > 0);
-
-        let risk = calculate_tile_danger(&safe_tiles, &left_tiles, 27, 28, 9, vec![]);
-        for (tile, (&should_be_safe, calculated_risk)) in expected_safe_tiles.iter().zip(risk).enumerate() {
-            if should_be_safe {
-                assert!(
-                    matches!(calculated_risk.danger_type, DangerType::Safe),
-                    "for visible {} and safe {}, {} expected safe but got {:?}",
-                    visible_tiles,
-                    safe_tiles_string,
-                    riichi::must_tile!(tile),
-                    calculated_risk
-                );
-            } else {
-                assert!(
-                    !matches!(calculated_risk.danger_type, DangerType::Safe),
-                    "for visible {} and safe {}, {} expected unsafe",
-                    visible_tiles,
-                    safe_tiles_string,
-                    riichi::must_tile!(tile)
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_calculate_risk_tiles_safe_tile() {
-        check_safe_tiles("2222333377779999m 22228888p 333355557777s 4444z", "", "29m 4z");
-        check_safe_tiles(
-            "111177778888m 1111222288889999p 222233339999s",
-            "4m 5p 6s",
-            "1478m 12589p 2369s",
-        );
-    }
 }
