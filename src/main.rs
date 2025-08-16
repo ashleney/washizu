@@ -14,15 +14,18 @@ fn read_json_log<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<riic
         .collect())
 }
 
-fn read_ekyumoe_log(path: &str) -> Vec<riichi::mjai::Event> {
+fn read_ekyumoe_log(path: &str) -> (u8, Vec<riichi::mjai::Event>) {
     let v: serde_json::Value = serde_json::from_reader(std::io::BufReader::new(std::fs::File::open(path).unwrap())).unwrap();
-    v.get("mjai_log")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|ev| serde_json::from_value(ev.clone()).unwrap())
-        .collect()
+    (
+        v.get("player_id").unwrap().as_u64().unwrap() as u8,
+        v.get("mjai_log")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|ev| serde_json::from_value(ev.clone()).unwrap())
+            .collect(),
+    )
 }
 
 /// State of the board that is not immediately evident such as shanten, expected score or tile danger
@@ -46,7 +49,8 @@ pub struct ExpandedState {
     /// Estimates danger by calculating the amount of tile combinations that can lead to a player having this wait.
     /// Uses multipliers for more common types of waits. Does not analyze tedashi patterns.
     danger: [danger::PlayerDanger; 3],
-    /// Wall danger kind for each tile based on Chance rules. Player danger implicitly already calculates Chance.
+    /// Wall danger kind for each tile based on Chance rules. 
+    /// Player danger implicitly already calculates Chance, this field is only for quickly understanding why a tile is safe.
     wall_danger: [danger::WallDangerKind; 34],
 }
 
@@ -99,7 +103,7 @@ impl ExpandedState {
                         Some(a @ riichi::algo::agari::Agari::Normal { fu, han }) => format!(
                             "{}han{}fu = {}{extra_points_string}",
                             han,
-                            fu,
+                            if *fu != 0 { fu.to_string() } else { "".to_owned() },
                             if *tile == must_tile!(tu8!(?)) {
                                 a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
                             } else {
@@ -171,48 +175,74 @@ impl ExpandedState {
             } else {
                 "".to_string()
             },
-            danger_string
+            danger_string,
         )
     }
 }
 
-pub fn main() {
-    let player_id = std::env::args()
-        .nth(1)
-        .and_then(|s| s.parse::<u8>().ok())
-        .expect("Missing player_id");
-    if let Some(path) = std::env::args().nth(2) {
-        let mut state = riichi::state::PlayerState::new(player_id);
-        for event in read_ekyumoe_log(&path) {
-            state.update(&event).unwrap();
-            println!("\n{event:?}");
-            if let riichi::mjai::Event::Tsumo { actor, .. } = event
-                && actor != state.player_id
-            {
-                continue;
-            }
-            println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
+/// Provide live analysis, meant to be used alongside a mortal analysis tool
+fn main_live_analysis(player_id: u8) {
+    // TODO: Colored logs
+    let mut state = riichi::state::PlayerState::new(player_id);
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines() {
+        let Ok(l) = line else {
+            eprintln!("failed to read line");
+            continue;
+        };
+        let Ok(event) = serde_json::from_str::<riichi::mjai::Event>(&l) else {
+            eprintln!("failed to parse json");
+            continue;
+        };
+        state.update(&event).unwrap();
+        if let riichi::mjai::Event::Tsumo { actor, .. } = event
+            && actor != state.player_id
+        {
+            continue;
         }
-    } else {
-        let mut state = riichi::state::PlayerState::new(player_id);
-        let stdin = std::io::stdin();
-        for line in stdin.lock().lines() {
-            let Ok(l) = line else {
-                eprintln!("failed to read line");
-                continue;
-            };
-            let Ok(event) = serde_json::from_str::<riichi::mjai::Event>(&l) else {
-                eprintln!("failed to parse json");
-                continue;
-            };
-            state.update(&event).unwrap();
-            if let riichi::mjai::Event::Tsumo { actor, .. } = event
-                && actor != state.player_id
-            {
-                continue;
-            }
-            print!("\x1B[2J\x1B[1;1H");
-            println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
+        print!("\x1B[2J\x1B[1;1H");
+        println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
+    }
+}
+
+/// Provide extra information to an ekyumoe analysis
+fn main_ekyumoe_analysis(path: &str) {
+    // TODO: Include mortal's thoughts directly in
+    let (player_id, events) = read_ekyumoe_log(&path);
+    let mut state = riichi::state::PlayerState::new(player_id);
+    for event in events {
+        state.update(&event).unwrap();
+        println!("\n{event:?}");
+        if let riichi::mjai::Event::Tsumo { actor, .. } = event
+            && actor != state.player_id
+        {
+            continue;
+        }
+        println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
+    }
+}
+
+pub fn main() {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    match args
+        .get(0)
+        .expect("usage: washizu live [player_id] | washizu ekyumoe [path]")
+        .as_str()
+    {
+        "live" => {
+            let player_id = args
+                .get(1)
+                .expect("missing player_id for live")
+                .parse::<u8>()
+                .expect("invalid player_id");
+            main_live_analysis(player_id);
+        }
+        "ekyumoe" => {
+            let path = args.get(1).expect("missing path for ekyumoe");
+            main_ekyumoe_analysis(path);
+        }
+        cmd => {
+            panic!("unrecognized command: {}", cmd);
         }
     }
 }

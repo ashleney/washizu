@@ -82,7 +82,6 @@ impl Wait {
 #[derive(Clone, Debug)]
 pub struct PlayerDanger {
     pub tile_weights: [f32; 34],
-    #[allow(dead_code)]
     pub waits: Vec<Wait>,
 }
 
@@ -96,6 +95,15 @@ impl PlayerDanger {
             .collect::<Vec<_>>();
         tile_weights.sort_unstable_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
         tile_weights
+    }
+
+    #[allow(dead_code)]
+    pub fn tile_waits(&self, tile: u8) -> Vec<Wait> {
+        self.waits
+            .iter()
+            .filter(|wait| wait.wait.waits.contains(&tile))
+            .cloned()
+            .collect::<Vec<_>>()
     }
 }
 
@@ -167,13 +175,9 @@ fn calculate_player_danger(
     for wait in POSSIBLE_WAITS.iter() {
         let genbutsu = wait.waits.iter().any(|&tile| safe_tiles[tile as usize]);
         let combinations = if matches!(wait.kind, WaitKind::Shanpon) {
-            (unseen_tiles[wait.tiles[0] as usize] * unseen_tiles[wait.tiles[0] as usize] - 1) / 2
+            (unseen_tiles[wait.tiles[0] as usize] * unseen_tiles[wait.tiles[0] as usize].saturating_sub(1)) / 2
         } else {
-            let mut combinations = 1;
-            for &tile in wait.tiles.iter() {
-                combinations *= unseen_tiles[tile as usize];
-            }
-            combinations
+            wait.tiles.iter().map(|&tile| unseen_tiles[tile as usize]).product()
         };
 
         let mut ura_suji = false;

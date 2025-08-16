@@ -9,9 +9,8 @@ Mostly meant for tile efficiency and non-obvious guaranteed tile safety.
 This project goes fundamentally against the goal Mortal was designed for, but because model-free engines are currently dominating over typical engines, attempting to analyze mortal's output should end up being more valuable.
 
 ## Credits
-[Equim-chan/Mortal](https://github.com/Equim-chan/Mortal) - AI for riichi mahjong.
-[shinkuan](https://github.com/shinkuan) - Provider of a public pre-trained Mortal model.
-[killerducky/killer_mortal_gui]([https://github.com/killerducky/killer_mortal_gui) - Mortal GUI and defense calculation.
-[EndlessCheng/mahjong-helper](https://github.com/EndlessCheng/mahjong-helper) - Old defense calculation.
-[The Hopeless Girl on the Path of Houou](https://pathofhouou.blogspot.com/) - Replay analysis of Tenhou games.
-
+- [Equim-chan/Mortal](https://github.com/Equim-chan/Mortal) - AI for riichi mahjong.
+- [shinkuan](https://github.com/shinkuan) - Provider of a public pre-trained Mortal model.
+- [killerducky/killer_mortal_gui](https://github.com/killerducky/killer_mortal_gui) - Mortal GUI and defense calculation.
+- [EndlessCheng/mahjong-helper](https://github.com/EndlessCheng/mahjong-helper) - Old defense calculation.
+- [The Hopeless Girl on the Path of Houou](https://pathofhouou.blogspot.com/) - Replay analysis of Tenhou games.
