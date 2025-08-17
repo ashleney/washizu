@@ -10,9 +10,7 @@ pub enum ActionType {
     ChiMid,
     ChiHigh,
     Pon,
-    Daiminkan,
-    Kakan,
-    Ankan,
+    Kan,
 }
 
 impl ActionType {
@@ -25,9 +23,7 @@ impl ActionType {
             ActionType::ChiMid => "chi_mid",
             ActionType::ChiHigh => "chi_high",
             ActionType::Pon => "pon",
-            ActionType::Daiminkan => "daiminkan",
-            ActionType::Kakan => "kakan",
-            ActionType::Ankan => "ankan",
+            ActionType::Kan => "kan",
         }
     }
 }
@@ -276,7 +272,7 @@ pub fn single_player_tables_after_calls(
             })
             .unwrap();
         candidates.push((
-            ActionType::Daiminkan,
+            ActionType::Kan,
             single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
         ));
     }
@@ -292,7 +288,7 @@ pub fn single_player_tables_after_calls(
                 })
                 .unwrap();
             candidates.push((
-                ActionType::Ankan,
+                ActionType::Kan,
                 single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
             ));
         }
@@ -321,7 +317,7 @@ pub fn single_player_tables_after_calls(
                 })
                 .unwrap();
             candidates.push((
-                ActionType::Kakan,
+                ActionType::Kan,
                 single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
             ));
         }
@@ -429,5 +425,31 @@ impl CandidateExt for riichi::algo::sp::Candidate {
                 .collect::<Vec<_>>()
                 .join(" "),
         )
+    }
+}
+
+
+/// Actionable event to snake_case string
+pub fn event_to_string(event: &riichi::mjai::Event) -> String {
+    match event {
+        riichi::mjai::Event::Dahai { pai, .. } => pai.to_string(),
+        riichi::mjai::Event::None => "pass".to_string(),
+        riichi::mjai::Event::Chi { pai, consumed, .. } => {
+            if pai.next() == consumed[0] {
+                "chi_low".to_string()
+            } else if consumed[1] == pai.prev() {
+                "chi_high".to_string()
+            } else {
+                "chi_mid".to_string()
+            }
+        },
+        riichi::mjai::Event::Pon { .. } => "pon".to_string(),
+        riichi::mjai::Event::Daiminkan { .. } => "kan".to_string(),
+        riichi::mjai::Event::Kakan { .. } => "kan".to_string(),
+        riichi::mjai::Event::Ankan { .. } => "kan".to_string(),
+        riichi::mjai::Event::Reach { .. } => "reach".to_string(),
+        riichi::mjai::Event::Hora { .. } => "hora".to_string(),
+        riichi::mjai::Event::Ryukyoku { .. } => "ryukyoku".to_string(),
+        _ => "".to_string()
     }
 }

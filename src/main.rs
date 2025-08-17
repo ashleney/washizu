@@ -1,37 +1,19 @@
 mod danger;
+mod ekyumoecompat;
 mod mortalcompat;
-use mortalcompat::{ActionType, calculate_agari, single_player_tables_after_calls};
-use riichi::{must_tile, tu8};
+use ekyumoecompat::{Detail, read_ekyumoe_log};
+use mortalcompat::{ActionType, calculate_agari, event_to_string, single_player_tables_after_calls};
 use std::io::BufRead;
 
 use crate::mortalcompat::CandidateExt;
-
-#[allow(dead_code)]
-fn read_json_log<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<riichi::mjai::Event>> {
-    Ok(std::io::BufReader::new(std::fs::File::open(path)?)
-        .lines()
-        .filter_map(|line| line.ok().and_then(|l| serde_json::from_str::<riichi::mjai::Event>(&l).ok()))
-        .collect())
-}
-
-fn read_ekyumoe_log(path: &str) -> (u8, Vec<riichi::mjai::Event>) {
-    let v: serde_json::Value = serde_json::from_reader(std::io::BufReader::new(std::fs::File::open(path).unwrap())).unwrap();
-    (
-        v.get("player_id").unwrap().as_u64().unwrap() as u8,
-        v.get("mjai_log")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|ev| serde_json::from_value(ev.clone()).unwrap())
-            .collect(),
-    )
-}
 
 /// State of the board that is not immediately evident such as shanten, expected score or tile danger
 pub struct ExpandedState {
     /// Mortal's player state
     state: riichi::state::PlayerState,
+    /// Expanded metadata given by mortal for the current state.
+    /// Empty for actions that cannot have a response (equivalent to a single 100% "none").
+    details: Vec<Detail>,
     /// Shanten of the current hand. -1 for agari hands.
     shanten: i8,
     /// Tiles that the player can discard assuming they will perform a specific action, and their expected values assuming tsumo-only.
@@ -49,18 +31,19 @@ pub struct ExpandedState {
     /// Estimates danger by calculating the amount of tile combinations that can lead to a player having this wait.
     /// Uses multipliers for more common types of waits. Does not analyze tedashi patterns.
     danger: [danger::PlayerDanger; 3],
-    /// Wall danger kind for each tile based on Chance rules. 
+    /// Wall danger kind for each tile based on Chance rules.
     /// Player danger implicitly already calculates Chance, this field is only for quickly understanding why a tile is safe.
     wall_danger: [danger::WallDangerKind; 34],
 }
 
 impl ExpandedState {
-    pub fn from_state(state: riichi::state::PlayerState) -> Self {
+    pub fn from_state(state: riichi::state::PlayerState, details: Option<Vec<Detail>>) -> Self {
         let shanten = state.real_time_shanten();
 
         // TODO: proper agari after Hora event
         Self {
             shanten,
+            details: details.unwrap_or_default(),
             candidates: single_player_tables_after_calls(&state),
             agari: if shanten == -1 {
                 vec![(
@@ -86,6 +69,12 @@ impl ExpandedState {
     }
 
     fn to_log_string(&self) -> String {
+        let details_string = self
+            .details
+            .iter()
+            .map(|detail| format!("{}({:.2}%)", event_to_string(&detail.action), detail.prob * 100.0))
+            .collect::<Vec<_>>()
+            .join(" ");
         let extra_points_string = if self.state.honba > 0 || self.state.kyotaku > 0 {
             format!("+{}", self.state.honba as i32 * 300 + self.state.kyotaku as i32 * 1000)
         } else {
@@ -104,7 +93,7 @@ impl ExpandedState {
                             "{}han{}fu = {}{extra_points_string}",
                             han,
                             if *fu != 0 { fu.to_string() } else { "".to_owned() },
-                            if *tile == must_tile!(tu8!(?)) {
+                            if *tile == riichi::must_tile!(riichi::tu8!(?)) {
                                 a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
                             } else {
                                 a.point(self.state.is_oya()).ron
@@ -138,35 +127,69 @@ impl ExpandedState {
             .join("\n");
         let danger_string = self
             .danger
+            .iter()
+            .enumerate()
             .clone()
-            .map(|danger| {
+            .map(|(i, danger)| {
                 danger
                     .sorted_tile_weights()
                     .iter()
                     .filter(|(_, danger)| *danger > 0.0)
                     .map(|(tile, danger)| {
+                        let mut danger_info = std::collections::HashSet::new();
+                        if !matches!(self.wall_danger[tile.as_usize()], danger::WallDangerKind::None) {
+                            danger_info.insert(self.wall_danger[tile.as_usize()].to_acronym());
+                        }
+                        for wait in self.danger[i].waits.iter() {
+                            if wait.wait.waits.contains(&tile.as_u8()) {
+                                if matches!(wait.wait.kind, danger::WaitKind::Ryanmen) && wait.genbutsu {
+                                    danger_info.insert("suji");
+                                }
+                                if wait.ura_suji {
+                                    danger_info.insert("urasuji");
+                                }
+                                if wait.matagi_suji_early {
+                                    danger_info.insert("msE");
+                                }
+                                if wait.matagi_suji_riichi {
+                                    danger_info.insert("msR");
+                                }
+                                if wait.riichi_suji_trap {
+                                    danger_info.insert("sujitrap");
+                                }
+                                if wait.dora_involved {
+                                    danger_info.insert("dora");
+                                }
+                            }
+                        }
                         format!(
                             "{}({:.1}{})",
                             tile,
                             danger,
-                            if !matches!(self.wall_danger[tile.as_usize()], danger::WallDangerKind::None) {
-                                self.wall_danger[tile.as_usize()].to_acronym()
+                            if !danger_info.is_empty() {
+                                " ".to_owned() + &danger_info.iter().cloned().collect::<Vec<_>>().join(" ")
                             } else {
-                                ""
+                                "".to_owned()
                             }
                         )
                     })
                     .collect::<Vec<_>>()
                     .join(" ")
             })
+            .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "{} ({}{}){}{}\n{}",
+            "{} ({}{}){}{}{}\n{}",
             riichi::hand::tiles_to_string(&self.state.tehai, self.state.akas_in_hand),
             self.shanten,
             if self.state.at_furiten { " - furiten" } else { "" },
             if !agari_string.is_empty() {
                 format!("\nwaits: {agari_string}")
+            } else {
+                "".to_string()
+            },
+            if !details_string.is_empty() {
+                format!("\n{details_string}")
             } else {
                 "".to_string()
             },
@@ -201,16 +224,16 @@ fn main_live_analysis(player_id: u8) {
             continue;
         }
         print!("\x1B[2J\x1B[1;1H");
-        println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
+        println!("{}", ExpandedState::from_state(state.clone(), None).to_log_string());
     }
 }
 
 /// Provide extra information to an ekyumoe analysis
 fn main_ekyumoe_analysis(path: &str) {
     // TODO: Include mortal's thoughts directly in
-    let (player_id, events) = read_ekyumoe_log(&path);
-    let mut state = riichi::state::PlayerState::new(player_id);
-    for event in events {
+    let log = read_ekyumoe_log(&path);
+    let mut state = riichi::state::PlayerState::new(log.player_id);
+    for (event, details) in log.events_with_detail() {
         state.update(&event).unwrap();
         println!("\n{event:?}");
         if let riichi::mjai::Event::Tsumo { actor, .. } = event
@@ -218,7 +241,7 @@ fn main_ekyumoe_analysis(path: &str) {
         {
             continue;
         }
-        println!("{}", ExpandedState::from_state(state.clone()).to_log_string());
+        println!("{}", ExpandedState::from_state(state.clone(), details).to_log_string());
     }
 }
 

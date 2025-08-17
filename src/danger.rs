@@ -51,8 +51,8 @@ pub struct GeneralWait {
 }
 
 /// A specific wait that a player might have and all its flags.
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct Wait {
     pub wait: GeneralWait,
     pub genbutsu: bool,

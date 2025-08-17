@@ -8,6 +8,8 @@ Mostly meant for tile efficiency and non-obvious guaranteed tile safety.
 
 This project goes fundamentally against the goal Mortal was designed for, but because model-free engines are currently dominating over typical engines, attempting to analyze mortal's output should end up being more valuable.
 
+The project significantly sacrifices performance since it chooses to calculate expected value tables for all hands instead of up to 3-shanten.
+
 ## Credits
 - [Equim-chan/Mortal](https://github.com/Equim-chan/Mortal) - AI for riichi mahjong.
 - [shinkuan](https://github.com/shinkuan) - Provider of a public pre-trained Mortal model.
