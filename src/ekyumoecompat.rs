@@ -76,6 +76,6 @@ impl EkyuMoeReview {
             events_with_details.push((event.clone(), None));
         }
 
-        return events_with_details;
+        events_with_details
     }
 }
