@@ -1,7 +1,7 @@
 /// Expanded mortal state
 use crate::danger;
 use crate::ekyumoecompat::Detail;
-use crate::mortalcompat::{calculate_agari, event_to_string, single_player_tables_after_actions};
+use crate::mortalcompat::{calculate_agari_with_names, event_to_string, single_player_tables_after_actions};
 
 use crate::mortalcompat::CandidateExt;
 
@@ -24,7 +24,7 @@ pub struct ExpandedState {
     /// Agari score (including specific han and fu) of individual waits.
     /// For tenpai hands assumes the score is calculated as ron with no ura-dora.
     /// For agari hands (implied tsumo) the tile will be "?" and the score will be calculated as tsumo with no ura-dora.
-    pub agari: Vec<(riichi::tile::Tile, Option<riichi::algo::agari::Agari>)>,
+    pub agari: Vec<(riichi::tile::Tile, Option<(riichi::algo::agari::Agari, Vec<String>)>)>,
     /// Danger weights and wait types for each tile based on a player's discard.
     /// Estimates danger by calculating the amount of tile combinations that can lead to a player having this wait.
     /// Uses multipliers for more common types of waits. Does not analyze tedashi patterns.
@@ -46,7 +46,7 @@ impl ExpandedState {
             agari: if shanten == -1 {
                 vec![(
                     riichi::must_tile!(riichi::tu8!(?)),
-                    calculate_agari(&state, state.last_self_tsumo.unwrap_or_default(), false),
+                    calculate_agari_with_names(&state, state.last_self_tsumo.unwrap_or_default(), false),
                 )]
             } else if !state.last_cans.can_discard {
                 state
@@ -55,7 +55,7 @@ impl ExpandedState {
                     .enumerate()
                     .filter(|&(_, &b)| b)
                     .map(|(i, _)| riichi::must_tile!(i))
-                    .map(|tile| (tile, calculate_agari(&state, tile, true)))
+                    .map(|tile| (tile, calculate_agari_with_names(&state, tile, true)))
                     .collect()
             } else {
                 vec![]
@@ -87,20 +87,22 @@ impl ExpandedState {
                     tile,
                     match agari {
                         None => "yakunashi = 0".to_owned(),
-                        Some(a @ riichi::algo::agari::Agari::Normal { fu, han }) => format!(
-                            "{}han{}fu = {}{extra_points_string}",
+                        Some((a @ riichi::algo::agari::Agari::Normal { fu, han }, names)) => format!(
+                            "{}han{}fu = {}{extra_points_string} [{}]",
                             han,
                             if *fu != 0 { fu.to_string() } else { "".to_owned() },
                             if *tile == riichi::must_tile!(riichi::tu8!(?)) {
                                 a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
                             } else {
                                 a.point(self.state.is_oya()).ron
-                            }
+                            },
+                            names.join(", "),
                         ),
-                        Some(a @ riichi::algo::agari::Agari::Yakuman(count)) => format!(
-                            "{}yakuman = {}{extra_points_string}",
+                        Some((a @ riichi::algo::agari::Agari::Yakuman(count), names)) => format!(
+                            "{}yakuman = {}{extra_points_string} [{}]",
                             if *count == 1 { "".to_owned() } else { format!("{count}x ") },
-                            a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
+                            a.point(self.state.is_oya()).tsumo_total(self.state.is_oya()),
+                            names.join(", "),
                         ),
                     }
                 )

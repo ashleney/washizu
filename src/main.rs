@@ -7,7 +7,7 @@ use crate::state::ExpandedState;
 use std::io::BufRead;
 
 /// Provide live analysis, meant to be used alongside a mortal analysis tool
-fn main_live_analysis(player_id: u8) {
+pub fn main_live_analysis(player_id: u8) {
     // TODO: Colored logs
     let mut state = riichi::state::PlayerState::new(player_id);
     let stdin = std::io::stdin();
@@ -32,7 +32,7 @@ fn main_live_analysis(player_id: u8) {
 }
 
 /// Provide extra information to an ekyumoe analysis
-fn main_ekyumoe_analysis(path: &str) {
+pub fn main_ekyumoe_analysis(path: &str) {
     let log = read_ekyumoe_log(path);
     let mut state = riichi::state::PlayerState::new(log.player_id);
     let events_with_details = log.events_with_detail();

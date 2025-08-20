@@ -163,7 +163,7 @@ pub static POSSIBLE_WAITS: std::sync::LazyLock<Vec<GeneralWait>> = std::sync::La
     waits_array
 });
 
-fn calculate_player_danger(
+pub fn calculate_player_danger(
     safe_tiles: [bool; 34],
     discards_before_riichi: Vec<u8>,
     riichi_tile: Option<u8>,
@@ -359,7 +359,7 @@ pub fn calculate_wall_danger(unseen_tiles: &[u8; 34]) -> [WallDangerKind; 34] {
 }
 
 /// Determines safe tiles for the other three players asuming kawa is relative
-fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<riichi::state::item::KawaItem>; 24]>; 4]) -> [[bool; 34]; 3] {
+pub fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<riichi::state::item::KawaItem>; 24]>; 4]) -> [[bool; 34]; 3] {
     let mut safe_tiles = [[false; 34]; 3]; // furiten
     let mut temporary_safe_tiles = [[false; 34]; 3]; // temporary furiten, riichi furiten, or implied no wait change
 
