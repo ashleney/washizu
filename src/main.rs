@@ -21,10 +21,11 @@ pub fn main_live_analysis(player_id: u8) {
             continue;
         };
         state.update(&event).unwrap();
-        if let riichi::mjai::Event::Tsumo { actor, .. } = event
-            && actor != state.player_id
-        {
-            continue;
+        match event {
+            riichi::mjai::Event::Tsumo { actor, .. } if actor != state.player_id => continue,
+            riichi::mjai::Event::Hora { actor, .. } if actor == state.player_id => continue,
+            riichi::mjai::Event::EndKyoku => continue,
+            _ => {}
         }
         print!("\x1B[2J\x1B[1;1H");
         println!("{}", ExpandedState::from_state(state.clone(), None).to_log_string());
@@ -48,9 +49,7 @@ pub fn main_ekyumoe_analysis(path: &str) {
         }
         state.update(&event).unwrap();
         println!("\n{event:?}");
-        if let riichi::mjai::Event::Tsumo { actor, .. } = event
-            && actor != state.player_id
-        {
+        if !state.last_cans.can_act() {
             continue;
         }
         println!("{}", ExpandedState::from_state(state.clone(), details).to_log_string());
