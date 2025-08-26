@@ -45,7 +45,7 @@ impl ExpandedState {
             candidates: single_player_tables_after_actions(&state),
             agari: if shanten == -1 {
                 vec![(
-                    riichi::must_tile!(riichi::tu8!(?)),
+                    riichi::t!(?),
                     calculate_agari_with_names(&state, state.last_self_tsumo.unwrap_or_default(), false),
                 )]
             } else if !state.last_cans.can_discard {
@@ -91,7 +91,7 @@ impl ExpandedState {
                             "{}han{}fu = {}{extra_points_string} [{}]",
                             han,
                             if *fu != 0 { fu.to_string() } else { "".to_owned() },
-                            if *tile == riichi::must_tile!(riichi::tu8!(?)) {
+                            if *tile == riichi::t!(?) {
                                 a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
                             } else {
                                 a.point(self.state.is_oya()).ron

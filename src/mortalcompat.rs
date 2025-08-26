@@ -1,10 +1,146 @@
 //! Compatibility layer with mortal's libriichi that provides more customized alternatives to internal functions.
 //! Assumes 's/pub(super)/pub/g' was applied to Mortal's codebase.
 
+/// Possible events for the current state, excluding dahai
+pub fn possible_events(state: &riichi::state::PlayerState) -> Vec<riichi::mjai::Event> {
+    let mut events: Vec<riichi::mjai::Event> = vec![];
+
+    if state.last_cans.can_riichi {
+        events.push(riichi::mjai::Event::Reach { actor: state.player_id });
+    }
+    if state.last_cans.can_chi_low {
+        let pai = state.last_kawa_tile.unwrap();
+        let first = pai.next();
+        let can_akaize_consumed = match pai.as_u8() {
+            riichi::tu8!(3m) | riichi::tu8!(4m) => state.akas_in_hand[0],
+            riichi::tu8!(3p) | riichi::tu8!(4p) => state.akas_in_hand[1],
+            riichi::tu8!(3s) | riichi::tu8!(4s) => state.akas_in_hand[2],
+            _ => false,
+        };
+        let consumed = if can_akaize_consumed {
+            [first.akaize(), first.next().akaize()]
+        } else {
+            [first, first.next()]
+        };
+        events.push(riichi::mjai::Event::Chi {
+            actor: state.player_id,
+            target: state.last_cans.target_actor,
+            pai,
+            consumed,
+        });
+    }
+    if state.last_cans.can_chi_mid {
+        let pai = state.last_kawa_tile.unwrap();
+        let can_akaize_consumed = match pai.as_u8() {
+            riichi::tu8!(4m) | riichi::tu8!(6m) => state.akas_in_hand[0],
+            riichi::tu8!(4p) | riichi::tu8!(6p) => state.akas_in_hand[1],
+            riichi::tu8!(4s) | riichi::tu8!(6s) => state.akas_in_hand[2],
+            _ => false,
+        };
+        let consumed = if can_akaize_consumed {
+            [pai.prev().akaize(), pai.next().akaize()]
+        } else {
+            [pai.prev(), pai.next()]
+        };
+        events.push(riichi::mjai::Event::Chi {
+            actor: state.player_id,
+            target: state.last_cans.target_actor,
+            pai,
+            consumed,
+        });
+    }
+    if state.last_cans.can_chi_high {
+        let pai = state.last_kawa_tile.unwrap();
+        let last = pai.prev();
+        let can_akaize_consumed = match pai.as_u8() {
+            riichi::tu8!(6m) | riichi::tu8!(7m) => state.akas_in_hand[0],
+            riichi::tu8!(6p) | riichi::tu8!(7p) => state.akas_in_hand[1],
+            riichi::tu8!(6s) | riichi::tu8!(7s) => state.akas_in_hand[2],
+            _ => false,
+        };
+        let consumed = if can_akaize_consumed {
+            [last.prev().akaize(), last.akaize()]
+        } else {
+            [last.prev(), last]
+        };
+        events.push(riichi::mjai::Event::Chi {
+            actor: state.player_id,
+            target: state.last_cans.target_actor,
+            pai,
+            consumed,
+        });
+    }
+    if state.last_cans.can_pon {
+        let pai = state.last_kawa_tile.unwrap();
+        let can_akaize_consumed = match pai.as_u8() {
+            riichi::tu8!(5m) => state.akas_in_hand[0],
+            riichi::tu8!(5p) => state.akas_in_hand[1],
+            riichi::tu8!(5s) => state.akas_in_hand[2],
+            _ => false,
+        };
+        let consumed = if can_akaize_consumed {
+            [pai.akaize(), pai.deaka()]
+        } else {
+            [pai.deaka(); 2]
+        };
+        events.push(riichi::mjai::Event::Pon {
+            actor: state.player_id,
+            target: state.last_cans.target_actor,
+            pai,
+            consumed,
+        });
+    }
+    if state.last_cans.can_daiminkan {
+        let tile = state.last_kawa_tile.unwrap();
+        let consumed = if tile.is_aka() {
+            [tile.deaka(); 3]
+        } else {
+            [tile.akaize(), tile, tile]
+        };
+        events.push(riichi::mjai::Event::Daiminkan {
+            actor: state.player_id,
+            target: state.last_cans.target_actor,
+            pai: tile,
+            consumed,
+        });
+    }
+    if state.last_cans.can_ankan {
+        for tile in &state.ankan_candidates {
+            events.push(riichi::mjai::Event::Ankan {
+                actor: state.player_id,
+                consumed: [tile.akaize(), *tile, *tile, *tile],
+            });
+        }
+    }
+    if state.last_cans.can_kakan {
+        for tile in &state.kakan_candidates {
+            let can_akaize_target = match tile.as_u8() {
+                riichi::tu8!(5m) => state.akas_in_hand[0],
+                riichi::tu8!(5p) => state.akas_in_hand[1],
+                riichi::tu8!(5s) => state.akas_in_hand[2],
+                _ => false,
+            };
+            let (pai, consumed) = if can_akaize_target {
+                (tile.akaize(), [tile.deaka(); 3])
+            } else {
+                (tile.deaka(), [tile.akaize(), tile.deaka(), tile.deaka()])
+            };
+            events.push(riichi::mjai::Event::Kakan {
+                actor: state.player_id,
+                pai,
+                consumed,
+            });
+        }
+    }
+
+    events
+}
+
 /// Expected values of discarding specific tiles in single-player mahjong.
 /// Assumes riichi tsumo ippatsu if possible.
 /// Does not calculate tewagari and shanten-down for 3+ shanten hands.
-pub fn single_player_tables(state: &riichi::state::PlayerState, shanten: i8) -> Option<Vec<riichi::algo::sp::Candidate>> {
+pub fn single_player_tables(state: &riichi::state::PlayerState) -> Option<Vec<riichi::algo::sp::Candidate>> {
+    let shanten = state.real_time_shanten();
     if state.tiles_left < 4 {
         return None;
     }
@@ -86,211 +222,31 @@ pub fn single_player_tables(state: &riichi::state::PlayerState, shanten: i8) -> 
 }
 
 /// Single player tables after possible actions.
-/// Partially copied from BatchAgent::get_reaction.
 pub fn single_player_tables_after_actions(
     state: &riichi::state::PlayerState,
 ) -> Vec<(Option<riichi::mjai::Event>, Vec<riichi::algo::sp::Candidate>)> {
     let mut candidates = vec![];
-    if state.last_cans.can_discard {
-        if state.last_cans.can_riichi {
-            candidates.push((
-                Some(riichi::mjai::Event::Reach { actor: state.player_id }),
-                single_player_tables(state, state.real_time_shanten()).unwrap_or_default(),
-            ));
-            let mut state = state.clone();
-            state.last_cans.can_riichi = false;
-            candidates.push((
-                None,
-                single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
-            ));
-        } else {
-            candidates.push((
-                None,
-                single_player_tables(state, state.real_time_shanten()).unwrap_or_default(),
-            ));
-        }
+    if state.last_cans.can_riichi {
+        // if can_riichi then no action is equivalent to an explicit deny of riichi
+        let mut state = state.clone();
+        state.last_cans.can_riichi = false;
+        candidates.push((None, single_player_tables(&state).unwrap_or_default()));
     } else {
-        candidates.push((
-            Some(riichi::mjai::Event::None),
-            single_player_tables(state, state.real_time_shanten()).unwrap_or_default(),
-        ))
+        candidates.push((None, single_player_tables(state).unwrap_or_default()));
     }
-    if state.last_cans.can_chi_low {
-        let pai = state.last_kawa_tile().unwrap();
-        let first = pai.next();
-        let can_akaize_consumed = match pai.as_u8() {
-            riichi::tu8!(3m) | riichi::tu8!(4m) => state.akas_in_hand[0],
-            riichi::tu8!(3p) | riichi::tu8!(4p) => state.akas_in_hand[1],
-            riichi::tu8!(3s) | riichi::tu8!(4s) => state.akas_in_hand[2],
-            _ => false,
-        };
-        let consumed = if can_akaize_consumed {
-            [first.akaize(), first.next().akaize()]
-        } else {
-            [first, first.next()]
-        };
+    for event in possible_events(state) {
         let mut state = state.clone();
-        let event = riichi::mjai::Event::Chi {
-            actor: state.player_id,
-            target: state.last_cans.target_actor,
-            pai,
-            consumed,
-        };
         state.update(&event).unwrap();
-        candidates.push((
-            Some(event),
-            single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
-        ));
-    }
-    if state.last_cans.can_chi_mid {
-        let pai = state.last_kawa_tile().unwrap();
-        let can_akaize_consumed = match pai.as_u8() {
-            riichi::tu8!(4m) | riichi::tu8!(6m) => state.akas_in_hand[0],
-            riichi::tu8!(4p) | riichi::tu8!(6p) => state.akas_in_hand[1],
-            riichi::tu8!(4s) | riichi::tu8!(6s) => state.akas_in_hand[2],
-            _ => false,
-        };
-        let consumed = if can_akaize_consumed {
-            [pai.prev().akaize(), pai.next().akaize()]
-        } else {
-            [pai.prev(), pai.next()]
-        };
-
-        let mut state = state.clone();
-        let event = riichi::mjai::Event::Chi {
-            actor: state.player_id,
-            target: state.last_cans.target_actor,
-            pai,
-            consumed,
-        };
-        state.update(&event).unwrap();
-        candidates.push((
-            Some(event),
-            single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
-        ));
-    }
-    if state.last_cans.can_chi_high {
-        let pai = state.last_kawa_tile().unwrap();
-        let last = pai.prev();
-        let can_akaize_consumed = match pai.as_u8() {
-            riichi::tu8!(6m) | riichi::tu8!(7m) => state.akas_in_hand[0],
-            riichi::tu8!(6p) | riichi::tu8!(7p) => state.akas_in_hand[1],
-            riichi::tu8!(6s) | riichi::tu8!(7s) => state.akas_in_hand[2],
-            _ => false,
-        };
-        let consumed = if can_akaize_consumed {
-            [last.prev().akaize(), last.akaize()]
-        } else {
-            [last.prev(), last]
-        };
-
-        let mut state = state.clone();
-        let event = riichi::mjai::Event::Chi {
-            actor: state.player_id,
-            target: state.last_cans.target_actor,
-            pai,
-            consumed,
-        };
-        state.update(&event).unwrap();
-        candidates.push((
-            Some(event),
-            single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
-        ));
-    }
-    if state.last_cans.can_pon {
-        let pai = state.last_kawa_tile().unwrap();
-        let can_akaize_consumed = match pai.as_u8() {
-            riichi::tu8!(5m) => state.akas_in_hand[0],
-            riichi::tu8!(5p) => state.akas_in_hand[1],
-            riichi::tu8!(5s) => state.akas_in_hand[2],
-            _ => false,
-        };
-        let consumed = if can_akaize_consumed {
-            [pai.akaize(), pai.deaka()]
-        } else {
-            [pai.deaka(); 2]
-        };
-
-        let mut state = state.clone();
-        let event = riichi::mjai::Event::Pon {
-            actor: state.player_id,
-            target: state.last_cans.target_actor,
-            pai,
-            consumed,
-        };
-        state.update(&event).unwrap();
-        candidates.push((
-            Some(event),
-            single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
-        ));
-    }
-    if state.last_cans.can_daiminkan {
-        let tile = state.last_kawa_tile().unwrap();
-        let consumed = if tile.is_aka() {
-            [tile.deaka(); 3]
-        } else {
-            [tile.akaize(), tile, tile]
-        };
-        let mut state = state.clone();
-        let event = riichi::mjai::Event::Daiminkan {
-            actor: state.player_id,
-            target: state.last_cans.target_actor,
-            pai: tile,
-            consumed,
-        };
-        state.update(&event).unwrap();
-        candidates.push((
-            Some(event),
-            single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
-        ));
-    }
-    if state.last_cans.can_ankan {
-        let ankan_candidates = state.ankan_candidates();
-        if !ankan_candidates.is_empty() {
-            for &tile in ankan_candidates {
-                let mut state = state.clone();
-                let event = riichi::mjai::Event::Ankan {
-                    actor: state.player_id,
-                    consumed: [tile.akaize(), tile, tile, tile],
-                };
-                state.update(&event).unwrap();
-                candidates.push((
-                    Some(event),
-                    single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
-                ));
+        let mut tables = single_player_tables(&state).unwrap_or_default();
+        match event {
+            riichi::mjai::Event::Chi { pai, .. } | riichi::mjai::Event::Pon { pai, .. } => {
+                tables.retain(|candidate| candidate.tile.deaka() != pai.deaka());
             }
-        }
-    }
-    if state.last_cans.can_kakan {
-        let kakan_candidates = state.kakan_candidates();
-        if !kakan_candidates.is_empty() {
-            for &tile in kakan_candidates {
-                let can_akaize_target = match tile.as_u8() {
-                    riichi::tu8!(5m) => state.akas_in_hand[0],
-                    riichi::tu8!(5p) => state.akas_in_hand[1],
-                    riichi::tu8!(5s) => state.akas_in_hand[2],
-                    _ => false,
-                };
-                let (pai, consumed) = if can_akaize_target {
-                    (tile.akaize(), [tile.deaka(); 3])
-                } else {
-                    (tile.deaka(), [tile.akaize(), tile.deaka(), tile.deaka()])
-                };
-                let mut state = state.clone();
-                let event = riichi::mjai::Event::Kakan {
-                    actor: state.player_id,
-                    pai,
-                    consumed,
-                };
-                state.update(&event).unwrap();
-                candidates.push((
-                    Some(event),
-                    single_player_tables(&state, state.real_time_shanten()).unwrap_or_default(),
-                ));
-            }
-        }
-    }
+            _ => {}
+        };
 
+        candidates.push((Some(event), tables))
+    }
     candidates
 }
 

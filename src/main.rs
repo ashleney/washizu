@@ -3,6 +3,7 @@ mod ekyumoecompat;
 mod mortalcompat;
 mod state;
 use crate::ekyumoecompat::read_ekyumoe_log;
+use crate::mortalcompat::CandidateExt;
 use crate::state::ExpandedState;
 use std::io::BufRead;
 
@@ -59,6 +60,56 @@ pub fn main_ekyumoe_analysis(path: &str) {
     }
 }
 
+pub fn main_single_analysis(tehai: Vec<riichi::tile::Tile>) {
+    let mut hand = [0; 34];
+    let mut akas_in_hand = [false; 3];
+    for tile in tehai.iter() {
+        hand[tile.deaka().as_usize()] += 1;
+        match tile.as_u8() {
+            riichi::tu8!(5m) => akas_in_hand[0] = true,
+            riichi::tu8!(5p) => akas_in_hand[1] = true,
+            riichi::tu8!(5s) => akas_in_hand[2] = true,
+            _ => {}
+        }
+    }
+    let len_div3 = (tehai.len() / 3) as u8;
+    let shanten = riichi::algo::shanten::calc_all(&hand, len_div3);
+    let init_state = riichi::algo::sp::InitState {
+        tehai: hand,
+        akas_in_hand,
+        tiles_seen: hand,
+        akas_seen: akas_in_hand,
+    };
+    let sp_calc = riichi::algo::sp::SPCalculator {
+        tehai_len_div3: len_div3,
+        is_menzen: true,
+        chis: &[],
+        pons: &[],
+        minkans: &[],
+        ankans: &[],
+        bakaze: riichi::tu8!(E),
+        jikaze: riichi::tu8!(E),
+        num_doras_in_fuuro: 0,
+        prefer_riichi: true,
+        dora_indicators: &[],
+        calc_double_riichi: false,
+        calc_haitei: false,
+        sort_result: true,
+        maximize_win_prob: false,
+        calc_tegawari: shanten <= 2,
+        calc_shanten_down: shanten <= 2,
+    };
+    let max_ev_table = sp_calc.calc(init_state, (tehai.len() % 3) == 2, 17, shanten).unwrap();
+    println!(
+        "{}",
+        max_ev_table
+            .iter()
+            .map(|candidate| candidate.to_candidate_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
 pub fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args
@@ -77,6 +128,10 @@ pub fn main() {
         "ekyumoe" => {
             let path = args.get(1).expect("missing path for ekyumoe");
             main_ekyumoe_analysis(path);
+        }
+        "single" => {
+            let hand = &riichi::hand::hand_with_aka(args.get(1).expect("Missing hand for single")).expect("Malformed hand");
+            main_single_analysis(riichi::hand::tile37_to_vec(hand));
         }
         cmd => {
             panic!("unrecognized command: {cmd}");
