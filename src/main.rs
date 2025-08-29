@@ -3,7 +3,7 @@ mod ekyumoecompat;
 mod mortalcompat;
 mod state;
 use crate::ekyumoecompat::read_ekyumoe_log;
-use crate::mortalcompat::CandidateExt;
+use crate::mortalcompat::{AgariCaculatorWithYaku, CandidateExt};
 use crate::state::ExpandedState;
 use std::io::BufRead;
 
@@ -74,6 +74,27 @@ pub fn main_single_analysis(tehai: Vec<riichi::tile::Tile>) {
     }
     let len_div3 = (tehai.len() / 3) as u8;
     let shanten = riichi::algo::shanten::calc_all(&hand, len_div3);
+    if shanten == -1 {
+        let agari_calc = riichi::algo::agari::AgariCalculator {
+            tehai: &hand,
+            is_menzen: true,
+            chis: &[],
+            pons: &[],
+            minkans: &[],
+            ankans: &[],
+            bakaze: riichi::tu8!(E),
+            jikaze: riichi::tu8!(E),
+            winning_tile: tehai.last().unwrap().deaka().as_u8(),
+            is_ron: true,
+        };
+
+        if let Some((agari, names)) = agari_calc.agari_with_names(0, 0) {
+            println!("{} [{}]", agari.point(true).ron, names.join(", "))
+        } else {
+            println!("no-yaku")
+        }
+        return;
+    }
     let init_state = riichi::algo::sp::InitState {
         tehai: hand,
         akas_in_hand,

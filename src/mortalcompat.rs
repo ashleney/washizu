@@ -407,7 +407,7 @@ pub fn event_to_string(event: &riichi::mjai::Event) -> String {
     }
 }
 
-trait AgariCaculatorWithYaku {
+pub trait AgariCaculatorWithYaku {
     /// Returns both agari and the names of yaku
     fn agari_with_names(&self, additional_hans: u8, doras: u8) -> Option<(riichi::algo::agari::Agari, Vec<String>)>;
     fn search_yakus_with_names(&self) -> Option<(riichi::algo::agari::Agari, Vec<String>)>;
@@ -457,7 +457,14 @@ impl AgariCaculatorWithYaku for riichi::algo::agari::AgariCalculator<'_> {
 
     fn search_yakus_with_names(&self) -> Option<(riichi::algo::agari::Agari, Vec<String>)> {
         if self.is_menzen && riichi::algo::shanten::calc_kokushi(self.tehai) == -1 {
-            return Some((riichi::algo::agari::Agari::Yakuman(1), vec!["Thirteen Orphans".to_string()]));
+            if self.tehai[self.winning_tile as usize] == 2 {
+                return Some((
+                    riichi::algo::agari::Agari::Yakuman(2),
+                    vec!["Thirteen-Orphans-Juusanmen".to_string()],
+                ));
+            } else {
+                return Some((riichi::algo::agari::Agari::Yakuman(1), vec!["Thirteen-Orphans".to_string()]));
+            }
         }
 
         let (tile14, key) = riichi::algo::agari::get_tile14_and_key(self.tehai);
@@ -502,8 +509,13 @@ impl DivWorkerWithNames for riichi::algo::agari::DivWorker<'_> {
             names.push("Ryanpeikou".to_string());
         }
         if self.div.has_chuuren {
-            yakuman += 1;
-            names.push("Nine-Gates".to_string());
+            if matches!(self.sup.tehai[self.sup.winning_tile as usize], 2 | 4) {
+                yakuman += 2;
+                names.push("True-Nine-Gates".to_string());
+            } else {
+                yakuman += 1;
+                names.push("Nine-Gates".to_string());
+            }
         }
 
         let has_tanyao = if self.div.has_chitoi {
@@ -648,8 +660,13 @@ impl DivWorkerWithNames for riichi::algo::agari::DivWorker<'_> {
             let ankous_count = self.sup.ankans.len() + self.menzen_kotsu.len() - self.winning_tile_makes_minkou as usize;
             match ankous_count {
                 4 => {
-                    yakuman += 1;
-                    names.push("Suuankou".to_string());
+                    if self.sup.tehai[self.sup.winning_tile as usize] == 2 {
+                        yakuman += 2;
+                        names.push("Suuankou-Tanki".to_string());
+                    } else {
+                        yakuman += 1;
+                        names.push("Suuankou".to_string());
+                    }
                 }
                 3 => {
                     han += 2;
