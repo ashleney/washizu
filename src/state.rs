@@ -1,9 +1,9 @@
 /// Expanded mortal state
 use crate::danger;
 use crate::ekyumoecompat::Detail;
-use crate::mortalcompat::{calculate_agari_with_names, event_to_string, single_player_tables_after_actions};
-
-use crate::mortalcompat::CandidateExt;
+use crate::mortalcompat::agari::calculate_agari_with_names;
+use crate::mortalcompat::event::event_to_string;
+use crate::mortalcompat::sp::{CandidateExt, single_player_tables_after_actions};
 
 /// State of the board that is not immediately evident such as shanten, expected score or tile danger
 pub struct ExpandedState {
@@ -21,7 +21,7 @@ pub struct ExpandedState {
     /// Candidates are sorted by expected value.
     /// Shanten down candidates are not processed for hands with 3+ shanten.
     pub candidates: Vec<(Option<riichi::mjai::Event>, Vec<riichi::algo::sp::Candidate>)>,
-    /// Agari score (including specific han and fu) of individual waits.
+    /// Agari state (including specific yaku names, han and fu) of individual waits.
     /// For tenpai hands assumes the score is calculated as ron with no ura-dora.
     /// For agari hands (implied tsumo) the tile will be "?" and the score will be calculated as tsumo with no ura-dora.
     pub agari: Vec<(riichi::tile::Tile, Option<(riichi::algo::agari::Agari, Vec<String>)>)>,

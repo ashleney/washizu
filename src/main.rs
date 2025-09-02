@@ -3,7 +3,8 @@ mod ekyumoecompat;
 mod mortalcompat;
 mod state;
 use crate::ekyumoecompat::read_ekyumoe_log;
-use crate::mortalcompat::{AgariCaculatorWithYaku, CandidateExt};
+use crate::mortalcompat::agari::AgariCaculatorWithYaku;
+use crate::mortalcompat::sp::CandidateExt;
 use crate::state::ExpandedState;
 use std::io::BufRead;
 
