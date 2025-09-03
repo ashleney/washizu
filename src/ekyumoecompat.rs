@@ -36,6 +36,10 @@ pub fn read_ekyumoe_log(path: &str) -> EkyuMoeReview {
 
 impl EkyuMoeReview {
     pub fn events_with_detail(&self) -> Vec<(riichi::mjai::Event, Option<Vec<Detail>>)> {
+        if self.review.kyokus.is_empty() {
+            return self.mjai_log.iter().map(|e| (e.clone(), None)).collect::<Vec<_>>();
+        }
+
         let mut kyoku = 0;
         let mut index = 0;
         let mut events_with_details = vec![];

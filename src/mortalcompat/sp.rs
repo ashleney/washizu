@@ -1,6 +1,10 @@
 //! Single-player table compatibility layer
 use crate::mortalcompat::event::possible_events;
 
+// TODO: When showing yaku names, use a bitfield instead of a hashmap and include the average dora count
+// This will allow for localization and more standardization
+// See tenhou
+
 /// Expected values of discarding specific tiles in single-player mahjong.
 /// Assumes riichi tsumo ippatsu if possible.
 /// Does not calculate tewagari and shanten-down for 3+ shanten hands.
@@ -74,8 +78,8 @@ pub fn single_player_tables(state: &riichi::state::PlayerState) -> Option<Vec<ri
         calc_haitei,
         sort_result: true,
         maximize_win_prob: false,
-        calc_tegawari: shanten <= 2,
-        calc_shanten_down: shanten <= 2,
+        calc_tegawari: shanten <= 2 && !state.self_riichi_declared(),
+        calc_shanten_down: shanten <= 2 && !state.self_riichi_declared(),
     };
 
     let mut max_ev_table = sp_calc.calc(init_state, can_discard, tsumos_left, shanten).ok()?;
@@ -124,26 +128,14 @@ impl CandidateExt for riichi::algo::sp::Candidate {
         format!(
             "{:<3} {:>5} {:>6} {:>6.2}% {:>6.2}% {} {} {}{}",
             self.tile.to_string(),
-            if !self.exp_values.is_empty() {
-                self.exp_values[0] as i32
-            } else {
-                0
-            },
-            if !self.exp_values.is_empty() {
-                (self.exp_values[0] / self.win_probs[0]).round() as i32
-            } else {
-                0
-            },
-            if !self.win_probs.is_empty() {
-                self.win_probs[0] * 100.0
-            } else {
-                0.0
-            },
-            if !self.tenpai_probs.is_empty() {
-                self.tenpai_probs[0] * 100.0
-            } else {
-                0.0
-            },
+            self.exp_values.first().map(|v| *v as i32).unwrap_or(0),
+            self.exp_values
+                .first()
+                .zip(self.win_probs.first())
+                .map(|(v, w)| (v / w).round() as i32)
+                .unwrap_or(0),
+            self.win_probs.first().map(|w| w * 100.0).unwrap_or(0.0),
+            self.tenpai_probs.first().map(|t| t * 100.0).unwrap_or(0.0),
             if self.shanten_down { '-' } else { '+' },
             self.num_required_tiles,
             self.required_tiles
@@ -156,6 +148,7 @@ impl CandidateExt for riichi::algo::sp::Candidate {
                     " | {}",
                     self.yaku_names[0]
                         .iter()
+                        .filter(|(_, prob)| *prob > 0.01)
                         .map(|(yaku, prob)| format!("{} ({}%)", yaku, ((prob / self.win_probs[0]) * 100.0) as u8))
                         .collect::<Vec<_>>()
                         .join(" ")

@@ -3,5 +3,6 @@ log-viewer
 old
 target
 *.json
+*.jsonl
 *.txt
 killer_mortal_gui

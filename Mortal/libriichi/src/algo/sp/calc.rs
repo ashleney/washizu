@@ -328,6 +328,9 @@ impl<const MAX_TSUMO: usize> SPCalculatorState<'_, MAX_TSUMO> {
                 tenpai_probs[i] += tump_prob * next_values.tenpai_probs[i + 1];
                 win_probs[i] += tump_prob * next_values.win_probs[i + 1];
                 exp_values[i] += tump_prob * next_values.exp_values[i + 1];
+                for (yaku_name, yaku_prob) in next_values.yaku_names[i + 1].iter() {
+                    *yaku_names[i].entry(yaku_name.clone()).or_insert(0.0) += tump_prob * yaku_prob;
+                }
             }
         }
         let values = Rc::new(Values {
