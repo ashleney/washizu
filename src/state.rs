@@ -149,20 +149,22 @@ impl ExpandedState {
                                 if matches!(wait.wait.kind, danger::WaitKind::Ryanmen) && wait.genbutsu {
                                     danger_info.insert("suji");
                                 }
-                                if wait.ura_suji {
-                                    danger_info.insert("urasuji");
-                                }
                                 if wait.matagi_suji_early {
                                     danger_info.insert("msE");
                                 }
-                                if wait.matagi_suji_riichi {
-                                    danger_info.insert("msR");
-                                }
-                                if wait.riichi_suji_trap {
-                                    danger_info.insert("sujitrap");
-                                }
-                                if wait.dora_involved {
-                                    danger_info.insert("dora");
+                                if wait.weight > 0.0 {
+                                    if wait.ura_suji {
+                                        danger_info.insert("urasuji");
+                                    }
+                                    if wait.matagi_suji_riichi {
+                                        danger_info.insert("msR");
+                                    }
+                                    if wait.riichi_suji_trap {
+                                        danger_info.insert("sujitrap");
+                                    }
+                                    if wait.dora_involved {
+                                        danger_info.insert("dora");
+                                    }
                                 }
                             }
                         }

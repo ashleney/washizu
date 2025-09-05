@@ -16,3 +16,9 @@ The project significantly sacrifices performance since it chooses to calculate e
 - [killerducky/killer_mortal_gui](https://github.com/killerducky/killer_mortal_gui) - Mortal GUI and defense calculation.
 - [EndlessCheng/mahjong-helper](https://github.com/EndlessCheng/mahjong-helper) - Old defense calculation.
 - [The Hopeless Girl on the Path of Houou](https://pathofhouou.blogspot.com/) - Replay analysis of Tenhou games.
+
+## Unexpected behavior with no clear solution
+- Yaku names are localized to be recognizable specifically to the author
+- Houtei is not calculated and haitei is overvalued, e.g. open hand 234m4p111222333z chi 1m dahai 4p may be valued 50 points higher if it makes us the candidate for haitei
+- Agari off Ron is not calculated which causes open hands to lose more points than expected. A chance of agari being Ron should be included in calculation.
+- Tsumo-only causes furiten to not be considered. It is also extra state that would mess with the cache.

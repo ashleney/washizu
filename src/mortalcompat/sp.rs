@@ -87,6 +87,9 @@ pub fn single_player_tables(state: &riichi::state::PlayerState) -> Option<Vec<ri
         max_ev_table[0].tile = state.last_self_tsumo?;
     }
 
+    // TODO: Do not calculate forbidden discards in the first place
+    max_ev_table.retain(|candidate| candidate.tile.is_unknown() || !state.forbidden_tiles[candidate.tile.as_usize()]);
+
     Some(max_ev_table)
 }
 
@@ -101,20 +104,12 @@ pub fn single_player_tables_after_actions(
         state.last_cans.can_riichi = false;
         candidates.push((None, single_player_tables(&state).unwrap_or_default()));
     } else {
-        candidates.push((None, single_player_tables(state).unwrap_or_default()));
+        candidates.push((None, single_player_tables(&state).unwrap_or_default()));
     }
     for event in possible_events(state) {
         let mut state = state.clone();
         state.update(&event).unwrap();
-        let mut tables = single_player_tables(&state).unwrap_or_default();
-        match event {
-            riichi::mjai::Event::Chi { pai, .. } | riichi::mjai::Event::Pon { pai, .. } => {
-                tables.retain(|candidate| candidate.tile.deaka() != pai.deaka());
-            }
-            _ => {}
-        };
-
-        candidates.push((Some(event), tables))
+        candidates.push((Some(event), single_player_tables(&state).unwrap_or_default()))
     }
     candidates
 }
