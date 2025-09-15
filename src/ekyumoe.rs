@@ -1,8 +1,10 @@
+use riichi::{mjai::Event, tile::Tile};
+
 #[derive(serde::Deserialize, Debug)]
 pub struct EkyuMoeReview {
     pub player_id: u8,
     pub review: Review,
-    pub mjai_log: Vec<riichi::mjai::Event>,
+    pub mjai_log: Vec<Event>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -19,13 +21,13 @@ pub struct KyokuReview {
 pub struct Entry {
     pub junme: u8,
     pub last_actor: u8,
-    pub tile: riichi::tile::Tile,
+    pub tile: Tile,
     pub details: Vec<Detail>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Detail {
-    pub action: riichi::mjai::Event,
+    pub action: Event,
     pub q_value: f32,
     pub prob: f32,
 }
@@ -35,7 +37,7 @@ pub fn read_ekyumoe_log(path: &str) -> EkyuMoeReview {
 }
 
 impl EkyuMoeReview {
-    pub fn events_with_detail(&self) -> Vec<(riichi::mjai::Event, Option<Vec<Detail>>)> {
+    pub fn events_with_detail(&self) -> Vec<(Event, Option<Vec<Detail>>)> {
         if self.review.kyokus.is_empty() {
             return self.mjai_log.iter().map(|e| (e.clone(), None)).collect::<Vec<_>>();
         }
@@ -44,11 +46,11 @@ impl EkyuMoeReview {
         let mut index = 0;
         let mut events_with_details = vec![];
         for event in self.mjai_log.iter() {
-            if matches!(event, riichi::mjai::event::Event::EndGame) {
+            if matches!(event, Event::EndGame) {
                 events_with_details.push((event.clone(), None));
                 continue;
             }
-            if matches!(event, riichi::mjai::Event::EndKyoku) {
+            if matches!(event, Event::EndKyoku) {
                 if index < self.review.kyokus[kyoku].entries.len() {
                     panic!("Didn't merge all events in kyoku {kyoku}");
                 }
@@ -62,21 +64,21 @@ impl EkyuMoeReview {
                 events_with_details.push((event.clone(), None));
                 continue;
             };
-            if matches!(event, riichi::mjai::Event::Tsumo { actor, .. } if *actor != self.player_id)
-                || matches!(event, riichi::mjai::Event::Dahai { actor, .. } if *actor == self.player_id)
+            if matches!(event, Event::Tsumo { actor, .. } if *actor != self.player_id)
+                || matches!(event, Event::Dahai { actor, .. } if *actor == self.player_id)
             {
                 events_with_details.push((event.clone(), None));
                 continue;
             }
-            let self_riichi_discard = matches!(event, riichi::mjai::Event::Reach { actor } if *actor == self.player_id)
+            let self_riichi_discard = matches!(event, Event::Reach { actor } if *actor == self.player_id)
                 && self.review.kyokus[kyoku].entries.get(index - 1).map(|x| x.junme) == Some(entry.junme);
             let last_tsumo_or_discard = match event {
-                riichi::mjai::Event::Tsumo { pai, .. }
-                | riichi::mjai::Event::Dahai { pai, .. }
-                | riichi::mjai::Event::Chi { pai, .. }
-                | riichi::mjai::Event::Pon { pai, .. }
-                | riichi::mjai::Event::Daiminkan { pai, .. }
-                | riichi::mjai::Event::Kakan { pai, .. } => Some(*pai),
+                Event::Tsumo { pai, .. }
+                | Event::Dahai { pai, .. }
+                | Event::Chi { pai, .. }
+                | Event::Pon { pai, .. }
+                | Event::Daiminkan { pai, .. }
+                | Event::Kakan { pai, .. } => Some(*pai),
                 _ => None,
             };
             if event.actor() == Some(entry.last_actor) && (last_tsumo_or_discard == Some(entry.tile) || self_riichi_discard) {

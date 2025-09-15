@@ -2,6 +2,12 @@
 //! Intended to help a player understand an engine's decision.
 //! original: <https://github.com/killerducky/killer_mortal_gui#dealin-rate>
 
+use riichi::{
+    must_tile,
+    state::{PlayerState, item::KawaItem},
+    tile::Tile,
+};
+
 /// Wall danger for ryanmen waits using chance strategies.
 #[derive(Copy, Clone, Debug)]
 pub enum WallDangerKind {
@@ -86,12 +92,12 @@ pub struct PlayerDanger {
 }
 
 impl PlayerDanger {
-    pub fn sorted_tile_weights(&self) -> Vec<(riichi::tile::Tile, f32)> {
+    pub fn sorted_tile_weights(&self) -> Vec<(Tile, f32)> {
         let mut tile_weights = self
             .tile_weights
             .iter()
             .enumerate()
-            .map(|(tile, weight)| (riichi::must_tile!(tile), *weight))
+            .map(|(tile, weight)| (must_tile!(tile), *weight))
             .collect::<Vec<_>>();
         tile_weights.sort_unstable_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
         tile_weights
@@ -359,7 +365,7 @@ pub fn calculate_wall_danger(unseen_tiles: &[u8; 34]) -> [WallDangerKind; 34] {
 }
 
 /// Determines safe tiles for the other three players asuming kawa is relative
-pub fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<riichi::state::item::KawaItem>; 24]>; 4]) -> [[bool; 34]; 3] {
+pub fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<KawaItem>; 24]>; 4]) -> [[bool; 34]; 3] {
     let mut safe_tiles = [[false; 34]; 3]; // furiten
     let mut temporary_safe_tiles = [[false; 34]; 3]; // temporary furiten, riichi furiten, or implied no wait change
 
@@ -391,7 +397,7 @@ pub fn determine_safe_tiles(kawa: &[tinyvec::TinyVec<[Option<riichi::state::item
     safe_tiles
 }
 
-pub fn calculate_board_danger(state: &riichi::state::PlayerState) -> [PlayerDanger; 3] {
+pub fn calculate_board_danger(state: &PlayerState) -> [PlayerDanger; 3] {
     let unseen_tiles = state.tiles_seen.map(|x| 4 - x);
     determine_safe_tiles(&state.kawa)
         .iter()

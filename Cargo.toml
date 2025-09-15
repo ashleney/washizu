@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-libriichi = { path = "Mortal/libriichi" }
+libriichi = { path = "libriichi" }
 # mortal requirements that are used in 1st party code:
 derivative = "2"
 console = "0.16"

@@ -1,14 +1,20 @@
+use riichi::algo::agari::yaku::{YakuLanguage, localize_yaku};
+use riichi::algo::agari::{Agari, AgariWithYaku};
+use riichi::algo::sp::{Candidate, SPOptions};
+use riichi::hand::tiles_to_string;
+use riichi::mjai::Event;
+use riichi::state::PlayerState;
+use riichi::tile::Tile;
+use riichi::{must_tile, t};
+
 /// Expanded mortal state
 use crate::danger;
-use crate::ekyumoecompat::Detail;
-use crate::mortalcompat::agari::calculate_agari_with_names;
-use crate::mortalcompat::event::event_to_string;
-use crate::mortalcompat::sp::{CandidateExt, single_player_tables_after_actions};
+use crate::ekyumoe::Detail;
 
 /// State of the board that is not immediately evident such as shanten, expected score or tile danger
 pub struct ExpandedState {
     /// Mortal's player state
-    pub state: riichi::state::PlayerState,
+    pub state: PlayerState,
     /// Expanded metadata given by mortal for the current state.
     /// Empty for actions that cannot have a response (equivalent to a single 100% "none").
     pub details: Vec<Detail>,
@@ -20,11 +26,11 @@ pub struct ExpandedState {
     /// Expected value is equal to average score * win probability where average score assumes riichi tsumo ippatsu if possible.
     /// Candidates are sorted by expected value.
     /// Shanten down candidates are not processed for hands with 3+ shanten.
-    pub candidates: Vec<(Option<riichi::mjai::Event>, Vec<riichi::algo::sp::Candidate>)>,
+    pub candidates: Vec<(Event, Candidate)>,
     /// Agari state (including specific yaku names, han and fu) of individual waits.
     /// For tenpai hands assumes the score is calculated as ron with no ura-dora.
     /// For agari hands (implied tsumo) the tile will be "?" and the score will be calculated as tsumo with no ura-dora.
-    pub agari: Vec<(riichi::tile::Tile, Option<(riichi::algo::agari::Agari, Vec<String>)>)>,
+    pub agari: Vec<(Tile, Option<AgariWithYaku>)>,
     /// Danger weights and wait types for each tile based on a player's discard.
     /// Estimates danger by calculating the amount of tile combinations that can lead to a player having this wait.
     /// Uses multipliers for more common types of waits. Does not analyze tedashi patterns.
@@ -35,18 +41,35 @@ pub struct ExpandedState {
 }
 
 impl ExpandedState {
-    pub fn from_state(state: riichi::state::PlayerState, details: Option<Vec<Detail>>) -> Self {
+    pub fn from_state(state: PlayerState, details: Option<Vec<Detail>>) -> Self {
         let shanten = state.real_time_shanten();
 
+        let options = if shanten <= 3 {
+            SPOptions {
+                max_shanten: 3,
+                calc_tegawari: Some(2),
+                calc_shanten_down: Some(2),
+                ..Default::default()
+            }
+        } else {
+            SPOptions {
+                max_shanten: 5,
+                ..Default::default()
+            }
+        };
+
         // TODO: proper agari after Hora event
+        // Hora is not available in live so low priority
         Self {
             shanten,
             details: details.unwrap_or_default(),
-            candidates: single_player_tables_after_actions(&state),
+            candidates: state.single_player_tables_for_events(&options),
             agari: if shanten == -1 {
                 vec![(
-                    riichi::t!(?),
-                    calculate_agari_with_names(&state, state.last_self_tsumo.unwrap_or_default(), false),
+                    t!(?),
+                    state
+                        .calculate_agari(state.last_self_tsumo.unwrap_or_default(), false, &[])
+                        .expect("incorrect shanten"),
                 )]
             } else if !state.last_cans.can_discard {
                 state
@@ -54,8 +77,8 @@ impl ExpandedState {
                     .iter()
                     .enumerate()
                     .filter(|&(_, &b)| b)
-                    .map(|(i, _)| riichi::must_tile!(i))
-                    .map(|tile| (tile, calculate_agari_with_names(&state, tile, true)))
+                    .map(|(tile, _)| must_tile!(tile))
+                    .map(|tile| (tile, state.calculate_agari(tile, true, &[]).expect("incorrect wait")))
                     .collect()
             } else {
                 vec![]
@@ -70,7 +93,7 @@ impl ExpandedState {
         let details_string = self
             .details
             .iter()
-            .map(|detail| format!("{}({:.2}%)", event_to_string(&detail.action), detail.prob * 100.0))
+            .map(|detail| format!("{}({:.2}%)", detail.action.to_decision_string(), detail.prob * 100.0))
             .collect::<Vec<_>>()
             .join(" ");
         let extra_points_string = if self.state.honba > 0 || self.state.kyotaku > 0 {
@@ -87,23 +110,25 @@ impl ExpandedState {
                     tile,
                     match agari {
                         None => "yakunashi = 0".to_owned(),
-                        Some((a @ riichi::algo::agari::Agari::Normal { fu, han }, names)) => format!(
-                            "{}han{}fu = {}{extra_points_string} [{}]",
-                            han,
-                            if *fu != 0 { fu.to_string() } else { "".to_owned() },
-                            if *tile == riichi::t!(?) {
-                                a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
-                            } else {
-                                a.point(self.state.is_oya()).ron
-                            },
-                            names.join(", "),
-                        ),
-                        Some((a @ riichi::algo::agari::Agari::Yakuman(count), names)) => format!(
-                            "{}yakuman = {}{extra_points_string} [{}]",
-                            if *count == 1 { "".to_owned() } else { format!("{count}x ") },
-                            a.point(self.state.is_oya()).tsumo_total(self.state.is_oya()),
-                            names.join(", "),
-                        ),
+                        Some(agari_with_yaku) => match agari_with_yaku.agari {
+                            a @ Agari::Normal { fu, han } => format!(
+                                "{}han{}fu = {}{extra_points_string} [{}]",
+                                han,
+                                if fu != 0 { fu.to_string() } else { "".to_owned() },
+                                if *tile == t!(?) {
+                                    a.point(self.state.is_oya()).tsumo_total(self.state.is_oya())
+                                } else {
+                                    a.point(self.state.is_oya()).ron
+                                },
+                                agari_with_yaku.localize_yaku(YakuLanguage::RomajiShort).join(", "),
+                            ),
+                            a @ Agari::Yakuman(count) => format!(
+                                "{}yakuman = {}{extra_points_string} [{}]",
+                                if count == 1 { "".to_owned() } else { format!("{count}x ") },
+                                a.point(self.state.is_oya()).tsumo_total(self.state.is_oya()),
+                                agari_with_yaku.localize_yaku(YakuLanguage::RomajiShort).join(", "),
+                            ),
+                        },
                     }
                 )
             })
@@ -112,19 +137,60 @@ impl ExpandedState {
         let candidates_string = self
             .candidates
             .iter()
-            .map(|(action, candidate)| {
+            .map(|(event, candidate)| {
                 format!(
-                    "{}:\n{}",
-                    if let Some(action) = action {
-                        event_to_string(action)
-                    } else {
-                        "dahai".to_owned()
-                    },
+                    "{:<3} {:>5} {:>6} {:>6.2}% {:>6.2}% {} {} {}{}",
+                    event.to_decision_string(),
+                    candidate.exp_values.first().map(|v| *v as i32).unwrap_or(0),
                     candidate
+                        .exp_values
+                        .first()
+                        .zip(candidate.win_probs.first())
+                        .map(|(v, w)| (v / w).round() as i32)
+                        .unwrap_or(0),
+                    candidate.win_probs.first().map(|w| w * 100.0).unwrap_or(0.0),
+                    candidate.tenpai_probs.first().map(|t| t * 100.0).unwrap_or(0.0),
+                    if candidate.shanten_down { '-' } else { '+' },
+                    candidate.num_required_tiles,
+                    candidate
+                        .required_tiles
                         .iter()
-                        .map(|candidate| candidate.to_candidate_string())
+                        .map(|r| format!("{}[{}]", r.tile, r.count))
                         .collect::<Vec<_>>()
-                        .join("\n")
+                        .join(" "),
+                    if !candidate.yaku.is_empty() {
+                        format!(
+                            " | {}{}{}{}",
+                            candidate.yaku[0]
+                                .sorted_yaku()
+                                .iter()
+                                .filter(|(_, prob)| *prob > 0.01)
+                                .map(|&(yaku, prob)| format!(
+                                    "{} ({}%)",
+                                    localize_yaku(yaku, YakuLanguage::RomajiShort),
+                                    ((prob / candidate.win_probs[0]) * 100.0) as u8
+                                ))
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                            if candidate.yaku[0].dora > 0.0 {
+                                format!(" ドラ ({:.2})", candidate.yaku[0].dora / candidate.win_probs[0])
+                            } else {
+                                "".to_owned()
+                            },
+                            if candidate.yaku[0].aka_dora > 0.0 {
+                                format!(" 赤ドラ ({:.2})", candidate.yaku[0].aka_dora / candidate.win_probs[0])
+                            } else {
+                                "".to_owned()
+                            },
+                            if candidate.yaku[0].ura_dora > 0.0 {
+                                format!(" 裏ドラ ({:.2})", candidate.yaku[0].ura_dora / candidate.win_probs[0])
+                            } else {
+                                "".to_owned()
+                            },
+                        )
+                    } else {
+                        "".to_owned()
+                    }
                 )
             })
             .collect::<Vec<_>>()
@@ -186,7 +252,7 @@ impl ExpandedState {
             .join("\n");
         format!(
             "{} ({}{}){}{}{}\n{}",
-            riichi::hand::tiles_to_string(&self.state.tehai, self.state.akas_in_hand),
+            tiles_to_string(&self.state.tehai, self.state.akas_in_hand),
             self.shanten,
             if self.state.at_furiten { " - furiten" } else { "" },
             if !agari_string.is_empty() {
