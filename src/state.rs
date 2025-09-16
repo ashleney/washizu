@@ -138,59 +138,44 @@ impl ExpandedState {
             .candidates
             .iter()
             .map(|(event, candidate)| {
+                let exp_value = candidate.exp_values.first().cloned().unwrap_or(0.0);
+                let win_prob = candidate.win_probs.first().cloned().unwrap_or(0.0);
+                let tenpai_prob = candidate.tenpai_probs.first().cloned().unwrap_or(0.0);
+                let mut yaku_str = vec![];
+                if let Some(yaku_probs) = candidate.yaku.first() {
+                    for (y, p) in yaku_probs.sorted_yaku() {
+                        yaku_str.push(format!(
+                            "{} ({}%)",
+                            localize_yaku(y, YakuLanguage::RomajiShort),
+                            ((p / win_prob) * 100.0).round()
+                        ));
+                    }
+                    if candidate.yaku[0].dora > 0.0 {
+                        yaku_str.push(format!("Dora ({:.2})", candidate.yaku[0].dora / win_prob));
+                    }
+                    if candidate.yaku[0].aka_dora > 0.0 {
+                        yaku_str.push(format!("Aka ({:.2})", candidate.yaku[0].aka_dora / win_prob));
+                    }
+                    if candidate.yaku[0].ura_dora > 0.0 {
+                        yaku_str.push(format!("Ura ({:.2})", candidate.yaku[0].ura_dora / win_prob));
+                    }
+                }
                 format!(
-                    "{:<3} {:>5} {:>6} {:>6.2}% {:>6.2}% {} {} {}{}",
+                    "{:<3} {:>5} {:>6} {:>6.2}% {:>6.2}% {} {} {} {}",
                     event.to_decision_string(),
-                    candidate.exp_values.first().map(|v| *v as i32).unwrap_or(0),
-                    candidate
-                        .exp_values
-                        .first()
-                        .zip(candidate.win_probs.first())
-                        .map(|(v, w)| (v / w).round() as i32)
-                        .unwrap_or(0),
-                    candidate.win_probs.first().map(|w| w * 100.0).unwrap_or(0.0),
-                    candidate.tenpai_probs.first().map(|t| t * 100.0).unwrap_or(0.0),
+                    exp_value.round(),
+                    if win_prob > 0.0 { (exp_value / win_prob).round() } else { 0.0 },
+                    win_prob * 100.0,
+                    tenpai_prob * 100.0,
                     if candidate.shanten_down { '-' } else { '+' },
                     candidate.num_required_tiles,
                     candidate
                         .required_tiles
                         .iter()
-                        .map(|r| format!("{}[{}]", r.tile, r.count))
+                        .map(|r| format!("{}@{}", r.tile, r.count))
                         .collect::<Vec<_>>()
                         .join(" "),
-                    if !candidate.yaku.is_empty() {
-                        format!(
-                            " | {}{}{}{}",
-                            candidate.yaku[0]
-                                .sorted_yaku()
-                                .iter()
-                                .filter(|(_, prob)| *prob > 0.01)
-                                .map(|&(yaku, prob)| format!(
-                                    "{} ({}%)",
-                                    localize_yaku(yaku, YakuLanguage::RomajiShort),
-                                    ((prob / candidate.win_probs[0]) * 100.0) as u8
-                                ))
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                            if candidate.yaku[0].dora > 0.0 {
-                                format!(" ドラ ({:.2})", candidate.yaku[0].dora / candidate.win_probs[0])
-                            } else {
-                                "".to_owned()
-                            },
-                            if candidate.yaku[0].aka_dora > 0.0 {
-                                format!(" 赤ドラ ({:.2})", candidate.yaku[0].aka_dora / candidate.win_probs[0])
-                            } else {
-                                "".to_owned()
-                            },
-                            if candidate.yaku[0].ura_dora > 0.0 {
-                                format!(" 裏ドラ ({:.2})", candidate.yaku[0].ura_dora / candidate.win_probs[0])
-                            } else {
-                                "".to_owned()
-                            },
-                        )
-                    } else {
-                        "".to_owned()
-                    }
+                    yaku_str.join(" "),
                 )
             })
             .collect::<Vec<_>>()
@@ -251,7 +236,7 @@ impl ExpandedState {
             .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "{} ({}{}){}{}{}\n{}",
+            "{} ({}{}){}{}\n{}\n{}\n{}",
             tiles_to_string(&self.state.tehai, self.state.akas_in_hand),
             self.shanten,
             if self.state.at_furiten { " - furiten" } else { "" },
@@ -265,11 +250,8 @@ impl ExpandedState {
             } else {
                 "".to_string()
             },
-            if !candidates_string.is_empty() {
-                format!("\n{candidates_string}")
-            } else {
-                "".to_string()
-            },
+            "act   EV  avg.win  win%  tenpai%   ukeire",
+            candidates_string,
             danger_string,
         )
     }
