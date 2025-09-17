@@ -1,8 +1,7 @@
 use riichi::algo::agari::yaku::{YakuLanguage, localize_yaku};
 use riichi::algo::agari::{Agari, AgariWithYaku};
-use riichi::algo::sp::{Candidate, SPOptions};
+use riichi::algo::sp::{EventCandidate, SPOptions};
 use riichi::hand::tiles_to_string;
-use riichi::mjai::Event;
 use riichi::state::PlayerState;
 use riichi::tile::Tile;
 use riichi::{must_tile, t};
@@ -20,13 +19,13 @@ pub struct ExpandedState {
     pub details: Vec<Detail>,
     /// Shanten of the current hand. -1 for agari hands.
     pub shanten: i8,
-    /// Tiles that the player can discard assuming they will perform a specific action, and their expected values assuming tsumo-only.
-    /// When the player cannot dahai, it will only be a single candidate "?" with a list of tiles that are being waited on.
+    /// Actions that the player can do and their expected values assuming tsumo-only.
+    /// When riichi is an option, dahai will be assumed to be damaten.
     /// Each candidate contains the chance the player will reach agari/tenpai in `length - n` tsumos.
     /// Expected value is equal to average score * win probability where average score assumes riichi tsumo ippatsu if possible.
     /// Candidates are sorted by expected value.
     /// Shanten down candidates are not processed for hands with 3+ shanten.
-    pub candidates: Vec<(Event, Candidate)>,
+    pub candidates: Vec<EventCandidate>,
     /// Agari state (including specific yaku names, han and fu) of individual waits.
     /// For tenpai hands assumes the score is calculated as ron with no ura-dora.
     /// For agari hands (implied tsumo) the tile will be "?" and the score will be calculated as tsumo with no ura-dora.
@@ -64,12 +63,12 @@ impl ExpandedState {
             shanten,
             details: details.unwrap_or_default(),
             candidates: state.single_player_tables_for_events(&options),
-            agari: if shanten == -1 {
+            agari: if shanten == -1
+                && let Some(winning_tile) = state.last_self_tsumo
+            {
                 vec![(
                     t!(?),
-                    state
-                        .calculate_agari(state.last_self_tsumo.unwrap_or_default(), false, &[])
-                        .expect("incorrect shanten"),
+                    state.calculate_agari(winning_tile, false, &[]).expect("incorrect shanten"),
                 )]
             } else if !state.last_cans.can_discard {
                 state
@@ -137,7 +136,7 @@ impl ExpandedState {
         let candidates_string = self
             .candidates
             .iter()
-            .map(|(event, candidate)| {
+            .map(|candidate| {
                 let exp_value = candidate.exp_values.first().cloned().unwrap_or(0.0);
                 let win_prob = candidate.win_probs.first().cloned().unwrap_or(0.0);
                 let tenpai_prob = candidate.tenpai_probs.first().cloned().unwrap_or(0.0);
@@ -162,12 +161,12 @@ impl ExpandedState {
                 }
                 format!(
                     "{:<3} {:>5} {:>6} {:>6.2}% {:>6.2}% {} {} {} {}",
-                    event.to_decision_string(),
+                    candidate.event.to_decision_string(),
                     exp_value.round(),
                     if win_prob > 0.0 { (exp_value / win_prob).round() } else { 0.0 },
                     win_prob * 100.0,
                     tenpai_prob * 100.0,
-                    if candidate.shanten_down { '-' } else { '+' },
+                    candidate.shanten,
                     candidate.num_required_tiles,
                     candidate
                         .required_tiles
@@ -250,7 +249,7 @@ impl ExpandedState {
             } else {
                 "".to_string()
             },
-            "act   EV  avg.win  win%  tenpai%   ukeire",
+            "act   EV  avg.win  win%  tenpai% s. ukeire",
             candidates_string,
             danger_string,
         )

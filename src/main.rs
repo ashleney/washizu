@@ -30,7 +30,7 @@ fn nested_hand_with_aka_vec(s: &str) -> Result<Vec<Vec<Tile>>> {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "washizu", version, about = "A Mahjong analysis tool")]
+#[command(name = "washizu")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -39,14 +39,8 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Hand(HandArgs),
-    Live {
-        #[arg(long)]
-        player_id: u8,
-    },
-    Ekyumoe {
-        #[arg(long)]
-        path: String,
-    },
+    Live { player_id: u8 },
+    Ekyumoe { path: String },
 }
 
 // clap is insanely annoying with builtin custom parsers, so we parse later
@@ -120,7 +114,7 @@ pub fn state_from_hand_args(args: HandArgs) -> Result<PlayerState> {
 
     let tehai_len: u8 = parsed_tehai.iter().sum();
     let tehai_len_div3 = tehai_len / 3;
-    let is_menzen = tehai_len_div3 == 4;
+    let is_menzen = chis.is_empty() && pons.is_empty() && minkans.is_empty();
     let can_discard = tehai_len % 3 == 2;
     let can_riichi = can_discard && is_menzen && calc_all(&tehai, tehai_len_div3) == 0;
     let target_actor = if can_discard { 0 } else { 3 };
@@ -148,8 +142,6 @@ pub fn state_from_hand_args(args: HandArgs) -> Result<PlayerState> {
             target_actor,
             ..Default::default()
         },
-        riichi_declared: [false; 4],
-        riichi_accepted: [false; 4],
         ..Default::default()
     })
 }
