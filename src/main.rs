@@ -1,5 +1,6 @@
 mod danger;
 mod ekyumoe;
+mod mjaigen;
 mod state;
 
 use clap::{Parser, Subcommand};
@@ -12,6 +13,7 @@ use riichi::{must_tile, t};
 use tinyvec::array_vec;
 
 use crate::ekyumoe::read_ekyumoe_log;
+use crate::mjaigen::parse_board;
 use crate::state::ExpandedState;
 use std::io::BufRead;
 
@@ -39,6 +41,8 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Hand(HandArgs),
+    Board { args: Vec<String> },
+    Parse { args: Vec<String> },
     Live { player_id: u8 },
     Ekyumoe { path: String },
 }
@@ -115,8 +119,9 @@ pub fn state_from_hand_args(args: HandArgs) -> Result<PlayerState> {
     let tehai_len: u8 = parsed_tehai.iter().sum();
     let tehai_len_div3 = tehai_len / 3;
     let is_menzen = chis.is_empty() && pons.is_empty() && minkans.is_empty();
+    let shanten = calc_all(&tehai, tehai_len_div3);
     let can_discard = tehai_len % 3 == 2;
-    let can_riichi = can_discard && is_menzen && calc_all(&tehai, tehai_len_div3) == 0;
+    let can_riichi = can_discard && is_menzen && shanten == 0;
     let target_actor = if can_discard { 0 } else { 3 };
 
     Ok(PlayerState {
@@ -133,6 +138,7 @@ pub fn state_from_hand_args(args: HandArgs) -> Result<PlayerState> {
         ankans,
         doras_owned: [doras_owned, 0, 0, 0],
         is_menzen,
+        shanten,
         bakaze: single_tile_hand(&args.bakaze.unwrap_or_default()).unwrap_or(t!(E)),
         jikaze: single_tile_hand(&args.jikaze.unwrap_or_default()).unwrap_or(t!(E)),
         dora_indicators: dora_indicators.into_iter().collect(),
@@ -148,6 +154,20 @@ pub fn state_from_hand_args(args: HandArgs) -> Result<PlayerState> {
 
 pub fn single_hand_analysis(args: HandArgs) {
     let state = state_from_hand_args(args).unwrap();
+    println!("{}", ExpandedState::from_state(state.clone(), None).to_log_string());
+}
+
+pub fn board_analysis(args: Vec<String>) {
+    let args = args.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+    let mut events = parse_board(args).unwrap().into_iter();
+    let Event::StartGame { id } = events.next().unwrap() else {
+        panic!()
+    };
+    let mut state = PlayerState::new(id.unwrap());
+    for event in events {
+        state.update(&event).unwrap();
+    }
+
     println!("{}", ExpandedState::from_state(state.clone(), None).to_log_string());
 }
 
@@ -212,6 +232,16 @@ pub fn main() {
         }
         Commands::Hand(args) => {
             single_hand_analysis(args);
+        }
+        Commands::Board { args } => {
+            board_analysis(args);
+        }
+        Commands::Parse { args } => {
+            let args = args.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+            let events = parse_board(args).unwrap();
+            for event in events {
+                println!("{}", serde_json::to_string(&event).unwrap());
+            }
         }
     }
 }
