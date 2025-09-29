@@ -326,8 +326,10 @@ pub fn generate_mjai_logs(board: Board) -> Result<Vec<Event>> {
         }
     }
 
+    let seen_aka = remaining_tiles[34..37].iter().any(|count| *count < 1);
+
     let mut events = vec![];
-    events.push(Event::StartGame { id: Some(player_id) });
+    events.push(Event::StartGame { id: Some(player_id), aka_flag: seen_aka, names: from_fn(|_| "".to_owned()), kyoku_first: 1 });
     events.push(Event::StartKyoku {
         bakaze: board.bakaze,
         dora_marker: board.dora_indicators[0],

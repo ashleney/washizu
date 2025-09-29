@@ -1,5 +1,6 @@
 use riichi::algo::agari::yaku::{YakuLanguage, localize_yaku};
 use riichi::algo::agari::{Agari, AgariWithYaku};
+use riichi::algo::danger::{PlayerDanger, WaitShape};
 use riichi::algo::sp::{EventCandidate, SPOptions};
 use riichi::hand::tiles_to_string;
 use riichi::state::PlayerState;
@@ -7,7 +8,6 @@ use riichi::tile::Tile;
 use riichi::{must_tile, t};
 
 /// Expanded mortal state
-use crate::danger;
 use crate::ekyumoe::Detail;
 
 /// State of the board that is not immediately evident such as shanten, expected score or tile danger
@@ -33,10 +33,7 @@ pub struct ExpandedState {
     /// Danger weights and wait types for each tile based on a player's discard.
     /// Estimates danger by calculating the amount of tile combinations that can lead to a player having this wait.
     /// Uses multipliers for more common types of waits. Does not analyze tedashi patterns.
-    pub danger: [danger::PlayerDanger; 3],
-    /// Wall danger kind for each tile based on Chance rules.
-    /// Player danger implicitly already calculates Chance, this field is only for quickly understanding why a tile is safe.
-    pub wall_danger: [danger::WallDangerKind; 34],
+    pub danger: [PlayerDanger; 4],
 }
 
 impl ExpandedState {
@@ -82,8 +79,7 @@ impl ExpandedState {
             } else {
                 vec![]
             },
-            danger: danger::calculate_board_danger(&state),
-            wall_danger: danger::calculate_wall_danger(&state.tiles_seen.map(|x| 4 - x)),
+            danger: state.calculate_danger(),
             state,
         }
     }
@@ -191,12 +187,9 @@ impl ExpandedState {
                     .filter(|(_, danger)| *danger > 0.0)
                     .map(|(tile, danger)| {
                         let mut danger_info = std::collections::HashSet::new();
-                        if !matches!(self.wall_danger[tile.as_usize()], danger::WallDangerKind::None) {
-                            danger_info.insert(self.wall_danger[tile.as_usize()].to_acronym());
-                        }
                         for wait in self.danger[i].waits.iter() {
-                            if wait.wait.waits.contains(&tile.as_u8()) {
-                                if matches!(wait.wait.kind, danger::WaitKind::Ryanmen) && wait.genbutsu {
+                            if wait.kind.waits.contains(&tile.as_u8()) {
+                                if matches!(wait.kind.shape, WaitShape::Ryanmen) && wait.genbutsu {
                                     danger_info.insert("suji");
                                 }
                                 if wait.matagi_suji_early {

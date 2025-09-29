@@ -1,4 +1,3 @@
-mod danger;
 mod ekyumoe;
 mod mjaigen;
 mod state;
@@ -160,8 +159,8 @@ pub fn single_hand_analysis(args: HandArgs) {
 pub fn board_analysis(args: Vec<String>) {
     let args = args.iter().map(|s| s.as_str()).collect::<Vec<_>>();
     let mut events = parse_board(args).unwrap().into_iter();
-    let Event::StartGame { id } = events.next().unwrap() else {
-        panic!()
+    let Event::StartGame { id, .. } = events.next().unwrap() else {
+        panic!("first event must be StartGame")
     };
     let mut state = PlayerState::new(id.unwrap());
     for event in events {
